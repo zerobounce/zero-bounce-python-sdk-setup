@@ -1,0 +1,28 @@
+from enum import Enum
+
+
+class ZBValidateSubStatus(Enum):
+    none = ""
+    antispam_system = "antispam_system"
+    greylisted = "greylisted"
+    mail_server_temporary_error = "mail_server_temporary_error"
+    forcible_disconnect = "forcible_disconnect"
+    mail_server_did_not_respond = "mail_server_did_not_respond"
+    timeout_exceeded = "timeout_exceeded"
+    failed_smtp_connection = "failed_smtp_connection"
+    mailbox_quota_exceeded = "mailbox_quota_exceeded"
+    exception_occurred = "exception_occurred"
+    possible_traps = "possible_traps"
+    role_based = "role_based"
+    global_suppression = "global_suppression"
+    mailbox_not_found = "mailbox_not_found"
+    no_dns_entries = "no_dns_entries"
+    failed_syntax_check = "failed_syntax_check"
+    possible_typo = "possible_typo"
+    unroutable_ip_address = "unroutable_ip_address"
+    leading_period_removed = "leading_period_removed"
+    does_not_accept_mail = "does_not_accept_mail"
+    alias_address = "alias_address"
+    role_based_catch_all = "role_based_catch_all"
+    disposable = "disposable"
+    toxic = "toxic"
