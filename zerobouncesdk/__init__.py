@@ -1,4 +1,4 @@
-from zerobouncesdk.zb_exceptions import ZBApiException, ZBMissingApiKeyException
+from zerobouncesdk.zb_exceptions import ZBException, ZBApiException, ZBMissingApiKeyException
 from zerobouncesdk.zb_validate_response import ZBValidateResponse
 from zerobouncesdk.zb_validate_status import ZBValidateStatus
 from zerobouncesdk.zb_send_file_response import ZBSendFileResponse

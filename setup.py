@@ -2,12 +2,12 @@ from setuptools import setup
 
 setup(
     name='zerobouncesdk',
-    version='0.0.100',
-    description='a pip-installable package example',
+    version='0.0.6',
+    description='The ZeroBounce SDK for Python programming language',
     license='MIT',
     packages=['zerobouncesdk'],
-    author='Andrei Tatomir',
-    author_email='andrei.tatomir@mountsoftware.ro',
+    author='ZeroBounce',
+    author_email='integrations@zerobounce.net',
     keywords=['zero', 'bounce', 'sdk'],
-    url='https://github.com/leizar27/zero-bounce-python-sdk', install_requires=['requests']
+    url='https://github.com/zerobounce-llc/zero-bounce-python-sdk-setup', install_requires=['requests', 'requests_toolbelt']
 )

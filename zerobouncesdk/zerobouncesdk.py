@@ -17,10 +17,17 @@ __apiBaseUrl = "https://api.zerobounce.net/v2"
 __bulkApiBaseUrl = "https://bulkapi.zerobounce.net/v2"
 __api_key = None
 
+__log_enabled: bool = False
+
 
 def initialize(api_key):
     global __api_key
     __api_key = api_key
+
+
+def set_log_enabled(log_enabled: bool):
+    global __log_enabled
+    __log_enabled = log_enabled
 
 
 def validate(email: str, ip_address: str = None) -> ZBValidateResponse:
@@ -127,9 +134,8 @@ def send_file(
 
     response_json = json.dumps(response.json())
 
-    print("")
-    print("response json: " + response_json)
-    print("")
+    if __log_enabled:
+        print("ZeroBounce response json: " + response_json)
 
     response.raise_for_status()
 
@@ -236,7 +242,8 @@ def get_file(file_id: str, local_download_path: str) -> ZBGetFileResponse:
     try:
         os.makedirs(ntpath.dirname(local_download_path), exist_ok=True)
         url = __bulkApiBaseUrl + "/getFile?api_key=" + __api_key + "&file_id=" + file_id
-        print("request url=" + url)
+        if __log_enabled:
+            print("ZeroBounce request url=" + url)
         urllib.request.urlretrieve(url, local_download_path)
 
         response = ZBGetFileResponse()
@@ -250,15 +257,17 @@ def __check_api_key():
     if __api_key is None:
         raise ZBMissingApiKeyException(
             "ZeroBounce SDK is not initialized. "
-            "Please call zerobouncesdk.instance.initialize(apiKey) first")
+            "Please call zerobouncesdk.initialize(<apiKey>) first")
 
 
 def __request(url, response_class):
     try:
-        print("request url=" + url)
+        if __log_enabled:
+            print("ZeroBounce request url=" + url)
         connection = urllib.request.urlopen(url)
         response = connection.read().decode('utf-8')
-        print("response string: " + response)
+        if __log_enabled:
+            print("ZeroBounce response string: " + response)
         response_object = response_class(response)
         return response_object
     except TypeError as e:

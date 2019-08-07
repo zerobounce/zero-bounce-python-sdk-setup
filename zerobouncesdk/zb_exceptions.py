@@ -1,7 +1,10 @@
-
-class ZBApiException(Exception):
+class ZBException(Exception):
     pass
 
 
-class ZBMissingApiKeyException(Exception):
+class ZBApiException(ZBException):
+    pass
+
+
+class ZBMissingApiKeyException(ZBException):
     pass
