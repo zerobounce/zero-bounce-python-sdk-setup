@@ -1,10 +1,13 @@
-# Zero Bounce Python SDK
+## Zero Bounce Python SDK
+This SDK contains methods for interacting easily with ZeroBounce API.
+More information about ZeroBounce you can find in the [official documentation](https://www.zerobounce.net/docs/).
 
-### INSTALLATION
+## INSTALLATION
+```bash
+pip install zerobouncesdk
+```
 
-```pip install zerobouncesdk```
-
-### USAGE
+## USAGE
 * import the sdk in your file:
 
   ```python
@@ -34,7 +37,8 @@
   zerobouncesdk.get_api_usage(start_date, end_date)
   zerobouncesdk.get_file("<YOUR_FILE_ID>", "./downloads/email_file.csv")
   ```  
-### Examples
+
+## Examples
 * get_credits:
     
     ```python
