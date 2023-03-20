@@ -12,12 +12,232 @@ from zerobouncesdk import \
     ZBSendFileResponse, ZBGetCreditsResponse, ZBFileStatusResponse, \
     ZBDeleteFileResponse, ZBGetApiUsageResponse, ZBGetFileResponse
 
+from .http_request import HttpRequest
+
 
 __apiBaseUrl = "https://api.zerobounce.net/v2"
 __bulkApiBaseUrl = "https://bulkapi.zerobounce.net/v2"
 __api_key = None
 
 __log_enabled: bool = False
+
+class ZeroBounce:
+    """A wrapper around the Zero Bounce V2 API."""
+
+    BASE_URL = "https://api.zerobounce.net/v2"
+    BULK_BASE_URL = "https://bulkapi.zerobounce.net/v2"
+
+    def __init__(self, api_key, log_enabled=False):
+        self._api_key = api_key
+        self._log_enabled = log_enabled
+
+
+    def get_credits(self):
+        """This API will tell you how many credits you have left on your account.
+        It's simple, fast and easy to use.
+
+        Raises
+        ------
+        ApiError
+
+        Returns
+        -------
+        response: ZBGetCreditsResponse
+            Returns a ZBGetCreditsResponse object if the request was successful
+        """
+
+        response = HttpRequest.get(
+            f"{self.BASE_URL}/getcredits",
+            params={"api_key": self._api_key}
+        )
+        return HttpRequest.parse_response(response, response_class=ZBGetCreditsResponse)
+    
+    def get_api_usage(self, start_date: date, end_date: date):
+        """Returns the API usage between the given dates.
+
+        Parameters
+        ----------
+        start_date: date
+            The start date of when you want to view API usage
+        end_date: date
+            The end date of when you want to view API usage
+
+        Raises
+        ------
+        ApiError
+
+        Returns
+        -------
+        response: ZBGetApiUsageResponse
+            Returns a ZBGetApiUsageResponse object if the request was successful
+        """
+
+        response = HttpRequest.get(
+            f"{self.BASE_URL}/getapiusage",
+            params={
+                "api_key": self._api_key,
+                "start_date": start_date,
+                "end_date": end_date,
+            }
+        )
+        return HttpRequest.parse_response(response, response_class=ZBGetApiUsageResponse)
+    
+    def validate(self, email: str, ip_address: str = None):
+        """Validates the given email address.
+
+        Parameters
+        ----------
+        email: str
+            The email address you want to validate
+        ip_address: str or None
+            The IP Address the email signed up from (Can be blank)
+
+        Raises
+        ------
+        ZBApiException
+
+        Returns
+        -------
+        response: ZBValidateResponse
+            Returns a ZBValidateResponse object if the request was successful
+        """
+
+        response = HttpRequest.get(
+            f"{self.BASE_URL}/validate",
+            params={
+                "api_key": self._api_key,
+                "email": email,
+                "ip_address": ip_address,
+            }
+        )
+        return HttpRequest.parse_response(response, response_class=ZBValidateResponse)
+    
+    def send_file(
+        self,
+        file_path: str, 
+        email_address_column: int,
+        return_url: str = None,
+        first_name_column: int = None,
+        last_name_column: int = None,
+        gender_column: int = None,
+        ip_address_column: int = None,
+        has_header_row: bool = False,
+        remove_duplicate: bool = True,
+    ):
+        """The sendfile API allows user to send a file for bulk email validation.
+
+        Parameters
+        ----------
+        file_path: str
+            The path of the csv or txt file to be submitted.
+        email_address_column: int
+            The column index of the email address in the file. Index starts from 1.
+        return_url: str or None
+            The URL will be used to call back when the validation is completed.
+        first_name_column: int or None
+            The column index of the first name column.
+        last_name_column: int or None
+            The column index of the last name column.
+        gender_column: int or None
+            The column index of the gender column.
+        ip_address_column: int or None
+            The IP Address the email signed up from.
+        has_header_row: bool
+            If the first row from the submitted file is a header row.
+        remove_duplicate: bool
+            If you want the system to remove duplicate emails.
+
+        Returns
+        -------
+        response: ZBSendFileResponse
+            Returns a ZBSendFileResponse object if the request was successful
+        """
+
+        data = {
+            "api_key": self._api_key,
+            "email_address_column": email_address_column,
+        }
+        if return_url is not None:
+            data["return_url"] = return_url
+        if first_name_column is not None:
+            data["first_name_column"] = first_name_column
+        if last_name_column is not None:
+            data["last_name_column"] = last_name_column
+        if gender_column is not None:
+            data["gender_column"] = gender_column
+        if ip_address_column is not None:
+            data["ip_address_column"] = ip_address_column
+        if has_header_row is not None:
+            data["has_header_row"] = has_header_row
+        if remove_duplicate is not None:
+            data["remove_duplicate"] = remove_duplicate
+
+        response = HttpRequest.post(
+            f"{self.BULK_BASE_URL}/sendfile",
+            data=data,
+            files={
+                "file": (os.path.basename(file_path), open(file_path, 'rb'), "text/csv")
+            }
+        )
+        return HttpRequest.parse_response(response, response_class=ZBSendFileResponse)
+    
+    def file_status(self, file_id: str):
+        """Returns the status of a file submitted for email validation.
+
+        Parameters
+        ----------
+        file_id: str
+            The returned file ID when calling sendFile API.
+
+        Returns
+        -------
+        response: ZBSendFileResponse
+            Returns a ZBSendFileResponse object if the request was successful
+        """
+
+        response = HttpRequest.get(
+            f"{self.BULK_BASE_URL}/filestatus",
+            params={
+                "api_key": self._api_key,
+                "file_id": file_id,
+            }
+        )
+        return HttpRequest.parse_response(response, response_class=ZBFileStatusResponse)
+
+    def get_file(self, file_id: str, download_path: str):
+        """
+        The getfile API allows you to get the validation results for the file you submitted using sendfile API
+
+        Parameters
+        ----------
+        file_id: str
+            The returned file ID when calling sendFile API.
+        download_path: str
+            The local path where the file will be downloaded.
+
+        Returns
+        -------
+        response: ZBGetFileResponse
+            Returns a ZBGetFileResponse object if the request was successful
+        """
+
+        response = requests.get(
+            f"{self.BULK_BASE_URL}/getfile",
+            params={
+                "api_key": self._api_key,
+                "file_id": file_id,
+            }
+        )
+        if response.headers['Content-Type'] == "application/json":
+            response = response.json()
+            return HttpRequest.parse_response(response, response_class=ZBGetFileResponse)
+
+        if dirname := os.path.dirname(download_path):
+            os.makedirs(dirname, exist_ok=True)
+        with open(download_path, "wb") as f:
+            f.write(response.content)
+
+        return ZBGetFileResponse({"local_file_path": download_path})
 
 
 def initialize(api_key):

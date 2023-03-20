@@ -7,3 +7,5 @@ from zerobouncesdk.zb_file_status_response import ZBFileStatusResponse
 from zerobouncesdk.zb_delete_file_response import ZBDeleteFileResponse
 from zerobouncesdk.zb_get_api_usage_response import ZBGetApiUsageResponse
 from zerobouncesdk.zb_get_file_response import ZBGetFileResponse
+
+from .zerobouncesdk import ZeroBounce

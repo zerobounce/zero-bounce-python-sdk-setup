@@ -1,11 +1,10 @@
-from zerobouncesdk._zb_response import ZBResponse
-import json
+from ._zb_response import ZBResponse
 
 
 class ZBGetCreditsResponse(ZBResponse):
+    """This is the response for the GET /credits request."""
+
     credits: str = None
 
-    def __init__(self, j):
-        # super().__init__(j)
-        _dict = json.loads(j)
-        self.credits = _dict["Credits"]
+    def __init__(self, data):
+        self.credits = data["Credits"]
