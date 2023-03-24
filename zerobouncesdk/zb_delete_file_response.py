@@ -1,11 +1,9 @@
-from zerobouncesdk._zb_response import ZBResponse
+from ._zb_response import ZBFileResponse
 
 
-class ZBDeleteFileResponse(ZBResponse):
-    success: bool = False
+class ZBDeleteFileResponse(ZBFileResponse):
+    """This is the response for the GET /deletefile request."""
 
-    message: str = None
+    file_name: str = None
 
-    fileName: str = None
-
-    fileId: str = None
+    file_id: str = None

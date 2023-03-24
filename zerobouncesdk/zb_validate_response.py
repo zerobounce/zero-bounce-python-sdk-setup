@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from ._zb_response import ZBResponse
 from .zb_validate_status import ZBValidateStatus
 from .zb_validate_sub_status import ZBValidateSubStatus
@@ -17,7 +19,7 @@ class ZBValidateResponse(ZBResponse):
     mail_server_did_not_respond, timeout_exceeded, failed_smtp_connection, mailbox_quota_exceeded,
     exception_occurred, possible_trap, role_based, global_suppression, mailbox_not_found, no_dns_entries,
     failed_syntax_check, possible_typo, unroutable_ip_address, leading_period_removed, does_not_accept_mail,
-    alias_address, role_based_catch_all, disposable, toxic, alternate, mx_forward]"""
+    alias_address, role_based_catch_all, disposable, toxic, alternate, mx_forward, blocked, allowed]"""
 
     account: str = None
     """The portion of the email address before the "@" symbol."""
@@ -64,10 +66,12 @@ class ZBValidateResponse(ZBResponse):
     country: str = None
     """The country of the IP passed in or [null]"""
 
-    processed_at: str = None
+    processed_at: datetime = None
     """The UTC time the email was validated."""
 
     def __init__(self, data):
         super().__init__(data)
         self.status = None if self.status is None else ZBValidateStatus(self.status)
         self.sub_status = None if self.sub_status is None else ZBValidateSubStatus(self.sub_status)
+        if self.processed_at is not None:
+            self.processed_at = datetime.strptime(self.processed_at, "%Y-%m-%d %H:%M:%S.%f")

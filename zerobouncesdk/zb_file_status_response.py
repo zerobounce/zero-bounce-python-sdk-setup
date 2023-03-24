@@ -1,10 +1,8 @@
-from ._zb_response import ZBResponse
+from ._zb_response import ZBFileResponse
 
 
-class ZBFileStatusResponse(ZBResponse):
+class ZBFileStatusResponse(ZBFileResponse):
     """This is the response for the GET /filestatus request."""
-
-    success: bool = False
 
     file_id: str = None
 
@@ -19,5 +17,3 @@ class ZBFileStatusResponse(ZBResponse):
     error_reason: str = None
 
     return_url: str = None
-
-    message: str = None

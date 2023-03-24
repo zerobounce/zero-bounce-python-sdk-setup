@@ -12,14 +12,31 @@ from zerobouncesdk import \
     ZBSendFileResponse, ZBGetCreditsResponse, ZBFileStatusResponse, \
     ZBDeleteFileResponse, ZBGetApiUsageResponse, ZBGetFileResponse
 
-from .http_request import HttpRequest
-
-
 __apiBaseUrl = "https://api.zerobounce.net/v2"
 __bulkApiBaseUrl = "https://bulkapi.zerobounce.net/v2"
 __api_key = None
 
 __log_enabled: bool = False
+
+from datetime import date
+import os
+import requests
+from typing import List
+
+from . import (
+    ZBApiException,
+    ZBClientException,
+    ZBGetCreditsResponse,
+    ZBGetApiUsageResponse,
+    ZBValidateResponse,
+    ZBEmailBatchElement,
+    ZBValidateBatchResponse, 
+    ZBSendFileResponse,
+    ZBFileStatusResponse,
+    ZBGetFileResponse,
+    ZBDeleteFileResponse
+)
+
 
 class ZeroBounce:
     """A wrapper around the Zero Bounce V2 API."""
@@ -27,10 +44,23 @@ class ZeroBounce:
     BASE_URL = "https://api.zerobounce.net/v2"
     BULK_BASE_URL = "https://bulkapi.zerobounce.net/v2"
 
-    def __init__(self, api_key, log_enabled=False):
+    def __init__(self, api_key: str):
         self._api_key = api_key
-        self._log_enabled = log_enabled
 
+    def _request(self, url, response_class, params=None):
+        if not params:
+            params = {}
+        params["api_key"] = self._api_key
+        response = requests.get(url, params=params)
+
+        try:
+            json_response = response.json()
+        except ValueError as e:
+            raise ZBApiException from e
+        
+        if error := json_response.pop("error", None):
+            raise ZBApiException(error)
+        return response_class(json_response)
 
     def get_credits(self):
         """Tells you how many credits you have left on your account.
@@ -38,7 +68,7 @@ class ZeroBounce:
 
         Raises
         ------
-        ApiError
+        ZBApiException
 
         Returns
         -------
@@ -46,11 +76,10 @@ class ZeroBounce:
             Returns a ZBGetCreditsResponse object if the request was successful
         """
 
-        response = HttpRequest.get(
+        return self._request(
             f"{self.BASE_URL}/getcredits",
-            params={"api_key": self._api_key}
+            ZBGetCreditsResponse
         )
-        return ZBGetCreditsResponse(response)
     
     def get_api_usage(self, start_date: date, end_date: date):
         """Returns the API usage between the given dates.
@@ -64,7 +93,7 @@ class ZeroBounce:
 
         Raises
         ------
-        ApiError
+        ZBApiException
 
         Returns
         -------
@@ -72,15 +101,14 @@ class ZeroBounce:
             Returns a ZBGetApiUsageResponse object if the request was successful
         """
 
-        response = HttpRequest.get(
+        return self._request(
             f"{self.BASE_URL}/getapiusage",
+            ZBGetApiUsageResponse,
             params={
-                "api_key": self._api_key,
                 "start_date": start_date.strftime("%Y-%m-%d"),
                 "end_date": end_date.strftime("%Y-%m-%d"),
             }
         )
-        return HttpRequest.parse_response(response, response_class=ZBGetApiUsageResponse)
     
     def validate(self, email: str, ip_address: str = None):
         """Validates the given email address.
@@ -102,16 +130,52 @@ class ZeroBounce:
             Returns a ZBValidateResponse object if the request was successful
         """
 
-        response = HttpRequest.get(
+        return self._request(
             f"{self.BASE_URL}/validate",
+            ZBValidateResponse,
             params={
-                "api_key": self._api_key,
                 "email": email,
                 "ip_address": ip_address,
             }
         )
-        return HttpRequest.parse_response(response, response_class=ZBValidateResponse)
     
+    def validate_batch(self, email_batch: List[ZBEmailBatchElement]):
+        """Allows you to send us batches up to 100 emails at a time.
+
+        Parameters
+        ----------
+        email_batch: List[ZBEmailBatchElement]
+            Array of ZBEmailBatchElement
+
+        Raises
+        ------
+        ZBApiException
+        ZBClientException
+
+        Returns
+        -------
+        response: ZBValidateBatchResponse
+            Returns a ZBValidateBatchResponse object if the request was successful
+        """
+        if not email_batch:
+            raise ZBClientException("Empty parameter: email_batch")
+        
+        response = requests.post(
+            f"{self.BULK_BASE_URL}/validatebatch",
+            json={
+                "api_key": self._api_key,
+                "email_batch": [
+                    batch_element.to_json() for batch_element in email_batch
+                ],
+            }
+        )
+        json_response = response.json()
+        try:
+            return ZBValidateBatchResponse(json_response)
+        except KeyError:
+            error = list(json_response.values())[0]
+            raise ZBApiException(error)
+
     def send_file(
         self,
         file_path: str, 
@@ -147,6 +211,10 @@ class ZeroBounce:
         remove_duplicate: bool
             If you want the system to remove duplicate emails.
 
+        Raises
+        ------
+        ZBApiException
+
         Returns
         -------
         response: ZBSendFileResponse
@@ -172,14 +240,19 @@ class ZeroBounce:
         if remove_duplicate is not None:
             data["remove_duplicate"] = remove_duplicate
 
-        response = HttpRequest.post(
+        response = requests.post(
             f"{self.BULK_BASE_URL}/sendfile",
             data=data,
             files={
                 "file": (os.path.basename(file_path), open(file_path, "rb"), "text/csv")
-            }
+            },
         )
-        return HttpRequest.parse_response(response, response_class=ZBSendFileResponse)
+        try:
+            json_response = response.json()
+        except ValueError as e:
+            raise ZBApiException from e
+        
+        return ZBSendFileResponse(json_response)
     
     def file_status(self, file_id: str):
         """Returns the file processing status for the file that has been submitted
@@ -189,20 +262,23 @@ class ZeroBounce:
         file_id: str
             The returned file ID when calling sendfile API.
 
+        Raises
+        ------
+        ZBClientException
+
         Returns
         -------
         response: ZBSendFileResponse
             Returns a ZBSendFileResponse object if the request was successful
         """
 
-        response = HttpRequest.get(
+        if not file_id.strip():
+            raise ZBClientException("Empty parameter: file_id")
+        return self._request(
             f"{self.BULK_BASE_URL}/filestatus",
-            params={
-                "api_key": self._api_key,
-                "file_id": file_id,
-            }
+            ZBFileStatusResponse,
+            params={"file_id": file_id}
         )
-        return HttpRequest.parse_response(response, response_class=ZBFileStatusResponse)
 
     def get_file(self, file_id: str, download_path: str):
         """Allows you to get the validation results for the file you submitted
@@ -214,12 +290,18 @@ class ZeroBounce:
         download_path: str
             The local path where the file will be downloaded.
 
+        Raises
+        ------
+        ZBClientException
+
         Returns
         -------
         response: ZBGetFileResponse
             Returns a ZBGetFileResponse object if the request was successful
         """
 
+        if not file_id.strip():
+            raise ZBClientException("Empty parameter: file_id")
         response = requests.get(
             f"{self.BULK_BASE_URL}/getfile",
             params={
@@ -228,8 +310,8 @@ class ZeroBounce:
             }
         )
         if response.headers['Content-Type'] == "application/json":
-            response = response.json()
-            return HttpRequest.parse_response(response, response_class=ZBGetFileResponse)
+            json_response = response.json()
+            return ZBGetFileResponse(json_response)
 
         if dirname := os.path.dirname(download_path):
             os.makedirs(dirname, exist_ok=True)
@@ -237,6 +319,34 @@ class ZeroBounce:
             f.write(response.content)
 
         return ZBGetFileResponse({"local_file_path": download_path})
+    
+    def delete_file(self, file_id: str):
+        """Deletes the file that you submitted
+        Please note that the file can be deleted only when its status is Complete
+
+        Parameters
+        ----------
+        file_id: str
+            The returned file ID when calling sendfile API.
+
+        Raises
+        ------
+        ZBApiException
+        ZBClientException
+
+        Returns
+        -------
+        response: ZBDeleteFileResponse
+            Returns a ZBDeleteFileResponse object if the request was successful
+        """
+
+        if not file_id.strip():
+            raise ZBClientException("Empty parameter: file_id")
+        return self._request(
+            f"{self.BULK_BASE_URL}/deletefile",
+            ZBDeleteFileResponse,
+            params={"file_id": file_id}
+        )
 
 
 def initialize(api_key):
