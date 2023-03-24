@@ -1,3 +1,5 @@
+from datetime import date, datetime
+
 from ._zb_response import ZBResponse
 
 
@@ -94,8 +96,21 @@ class ZBGetApiUsageResponse(ZBResponse):
     sub_status_alternate: int = 0
     """Total number of times the API has a sub status of alternate"""
 
-    start_date: str = None
+    sub_status_allowed: int = 0
+    """Total number of times the API has a sub status of allowed"""
+
+    sub_status_blocked: int = 0
+    """Total number of times the API has a sub status of blocked"""
+
+    start_date: date = None
     """Start date of query"""
 
-    end_date: str = None
+    end_date: date = None
     """End date of query"""
+
+    def __init__(self, data):
+        super().__init__(data)
+        if self.start_date is not None:
+            self.start_date = datetime.strptime(self.start_date, "%m/%d/%Y").date()
+        if self.end_date is not None:
+            self.end_date = datetime.strptime(self.end_date, "%m/%d/%Y").date()

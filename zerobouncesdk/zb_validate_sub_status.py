@@ -30,3 +30,5 @@ class ZBValidateSubStatus(Enum):
     toxic = "toxic"
     alternate = "alternate"
     mx_forward = "mx_forward"
+    blocked = "blocked"
+    allowed = "allowed"

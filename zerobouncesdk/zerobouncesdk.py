@@ -33,7 +33,7 @@ class ZeroBounce:
 
 
     def get_credits(self):
-        """This API will tell you how many credits you have left on your account.
+        """Tells you how many credits you have left on your account.
         It's simple, fast and easy to use.
 
         Raises
@@ -50,7 +50,7 @@ class ZeroBounce:
             f"{self.BASE_URL}/getcredits",
             params={"api_key": self._api_key}
         )
-        return HttpRequest.parse_response(response, response_class=ZBGetCreditsResponse)
+        return ZBGetCreditsResponse(response)
     
     def get_api_usage(self, start_date: date, end_date: date):
         """Returns the API usage between the given dates.
@@ -76,8 +76,8 @@ class ZeroBounce:
             f"{self.BASE_URL}/getapiusage",
             params={
                 "api_key": self._api_key,
-                "start_date": start_date,
-                "end_date": end_date,
+                "start_date": start_date.strftime("%Y-%m-%d"),
+                "end_date": end_date.strftime("%Y-%m-%d"),
             }
         )
         return HttpRequest.parse_response(response, response_class=ZBGetApiUsageResponse)
@@ -124,7 +124,7 @@ class ZeroBounce:
         has_header_row: bool = False,
         remove_duplicate: bool = True,
     ):
-        """The sendfile API allows user to send a file for bulk email validation.
+        """Allows user to send a file for bulk email validation
 
         Parameters
         ----------
@@ -176,18 +176,18 @@ class ZeroBounce:
             f"{self.BULK_BASE_URL}/sendfile",
             data=data,
             files={
-                "file": (os.path.basename(file_path), open(file_path, 'rb'), "text/csv")
+                "file": (os.path.basename(file_path), open(file_path, "rb"), "text/csv")
             }
         )
         return HttpRequest.parse_response(response, response_class=ZBSendFileResponse)
     
     def file_status(self, file_id: str):
-        """Returns the status of a file submitted for email validation.
+        """Returns the file processing status for the file that has been submitted
 
         Parameters
         ----------
         file_id: str
-            The returned file ID when calling sendFile API.
+            The returned file ID when calling sendfile API.
 
         Returns
         -------
@@ -205,13 +205,12 @@ class ZeroBounce:
         return HttpRequest.parse_response(response, response_class=ZBFileStatusResponse)
 
     def get_file(self, file_id: str, download_path: str):
-        """
-        The getfile API allows you to get the validation results for the file you submitted using sendfile API
+        """Allows you to get the validation results for the file you submitted
 
         Parameters
         ----------
         file_id: str
-            The returned file ID when calling sendFile API.
+            The returned file ID when calling sendfile API.
         download_path: str
             The local path where the file will be downloaded.
 
