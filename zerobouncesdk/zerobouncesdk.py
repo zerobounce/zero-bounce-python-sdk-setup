@@ -34,7 +34,8 @@ from . import (
     ZBSendFileResponse,
     ZBFileStatusResponse,
     ZBGetFileResponse,
-    ZBDeleteFileResponse
+    ZBDeleteFileResponse,
+    ZBActivityDataResponse,
 )
 
 
@@ -240,13 +241,14 @@ class ZeroBounce:
         if remove_duplicate is not None:
             data["remove_duplicate"] = remove_duplicate
 
-        response = requests.post(
-            f"{self.BULK_BASE_URL}/sendfile",
-            data=data,
-            files={
-                "file": (os.path.basename(file_path), open(file_path, "rb"), "text/csv")
-            },
-        )
+        with open(file_path, "rb") as file:
+            response = requests.post(
+                f"{self.BULK_BASE_URL}/sendfile",
+                data=data,
+                files={
+                    "file": (os.path.basename(file_path), file, "text/csv")
+                },
+            )
         try:
             json_response = response.json()
         except ValueError as e:
@@ -346,6 +348,30 @@ class ZeroBounce:
             f"{self.BULK_BASE_URL}/deletefile",
             ZBDeleteFileResponse,
             params={"file_id": file_id}
+        )
+    
+    def activity_data(self, email: str):
+        """Allows you to gather insights into your subscribers' overall email engagement
+
+        Parameters
+        ----------
+        email: str
+            The email whose activity you want to check
+
+        Raises
+        ------
+        ZBApiException
+
+        Returns
+        -------
+        response: ZBActivityDataResponse
+            Returns a ZBActivityDataResponse object if the request was successful
+        """
+
+        return self._request(
+            f"{self.BASE_URL}/activity",
+            ZBActivityDataResponse,
+            params={"email": email}
         )
 
 
