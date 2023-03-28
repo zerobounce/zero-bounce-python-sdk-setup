@@ -29,13 +29,13 @@ from . import (
     ZBGetCreditsResponse,
     ZBGetApiUsageResponse,
     ZBValidateResponse,
-    ZBEmailBatchElement,
+    ZBValidateBatchElement,
     ZBValidateBatchResponse, 
     ZBSendFileResponse,
     ZBFileStatusResponse,
     ZBGetFileResponse,
     ZBDeleteFileResponse,
-    ZBActivityDataResponse,
+    ZBGetActivityResponse,
 )
 
 
@@ -47,6 +47,8 @@ class ZeroBounce:
     SCORING_BASE_URL = "https://bulkapi.zerobounce.net/v2/scoring"
 
     def __init__(self, api_key: str):
+        if not api_key.strip():
+            raise ZBClientException("Empty parameter: api_key")
         self._api_key = api_key
 
     def _request(self, url, response_class, params=None):
@@ -141,13 +143,13 @@ class ZeroBounce:
             }
         )
 
-    def validate_batch(self, email_batch: List[ZBEmailBatchElement]):
+    def validate_batch(self, email_batch: List[ZBValidateBatchElement]):
         """Allows you to send us batches up to 100 emails at a time.
 
         Parameters
         ----------
-        email_batch: List[ZBEmailBatchElement]
-            Array of ZBEmailBatchElement
+        email_batch: List[ZBValidateBatchElement]
+            Array of ZBValidateBatchElement
 
         Raises
         ------
@@ -492,13 +494,13 @@ class ZeroBounce:
 
         Returns
         -------
-        response: ZBActivityDataResponse
-            Returns a ZBActivityDataResponse object if the request was successful
+        response: ZBGetActivityResponse
+            Returns a ZBGetActivityResponse object if the request was successful
         """
 
         return self._request(
             f"{self.BASE_URL}/activity",
-            ZBActivityDataResponse,
+            ZBGetActivityResponse,
             params={"email": email}
         )
 

@@ -1,7 +1,7 @@
 from . import ZBClientException
 
 
-class ZBEmailBatchElement:
+class ZBValidateBatchElement:
     """This is the model for the POST /validatebatch request."""
 
     email_address: str = None

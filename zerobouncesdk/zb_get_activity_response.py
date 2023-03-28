@@ -1,7 +1,7 @@
 from ._zb_response import ZBResponse
 
 
-class ZBActivityDataResponse(ZBResponse):
+class ZBGetActivityResponse(ZBResponse):
     """This is the response for the GET /activity request."""
 
     found: bool = False
