@@ -20,8 +20,9 @@ __log_enabled: bool = False
 
 from datetime import date
 import os
-import requests
 from typing import List
+
+import requests
 
 from . import (
     ZBApiException,

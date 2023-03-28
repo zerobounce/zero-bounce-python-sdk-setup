@@ -9,7 +9,7 @@ class ZBValidateBatchElement:
     ip_address: str = None
 
     def __init__(self, email_address: str, ip_address: str = None):
-        if not email_address:
+        if not email_address.strip():
             raise ZBClientException("Empty parameter: email_address")
         self.email_address = email_address
         self.ip_address = ip_address
