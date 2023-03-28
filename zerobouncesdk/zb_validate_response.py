@@ -1,8 +1,7 @@
 from datetime import datetime
 
+from . import ZBValidateStatus, ZBValidateSubStatus
 from ._zb_response import ZBResponse
-from .zb_validate_status import ZBValidateStatus
-from .zb_validate_sub_status import ZBValidateSubStatus
 
 
 class ZBValidateResponse(ZBResponse):

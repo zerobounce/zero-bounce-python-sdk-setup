@@ -29,6 +29,7 @@ from . import (
     ZBClientException,
     ZBGetCreditsResponse,
     ZBGetApiUsageResponse,
+    ZBGetActivityResponse,
     ZBValidateResponse,
     ZBValidateBatchElement,
     ZBValidateBatchResponse, 
@@ -36,7 +37,6 @@ from . import (
     ZBFileStatusResponse,
     ZBGetFileResponse,
     ZBDeleteFileResponse,
-    ZBGetActivityResponse,
 )
 
 
@@ -113,6 +113,30 @@ class ZeroBounce:
                 "start_date": start_date.strftime("%Y-%m-%d"),
                 "end_date": end_date.strftime("%Y-%m-%d"),
             }
+        )
+
+    def get_activity(self, email: str):
+        """Allows you to gather insights into your subscribers' overall email engagement
+
+        Parameters
+        ----------
+        email: str
+            The email whose activity you want to check
+
+        Raises
+        ------
+        ZBApiException
+
+        Returns
+        -------
+        response: ZBGetActivityResponse
+            Returns a ZBGetActivityResponse object if the request was successful
+        """
+
+        return self._request(
+            f"{self.BASE_URL}/activity",
+            ZBGetActivityResponse,
+            params={"email": email}
         )
 
     def validate(self, email: str, ip_address: str = None):
@@ -481,29 +505,6 @@ class ZeroBounce:
 
         return self._delete_file(True, file_id)
 
-    def activity_data(self, email: str):
-        """Allows you to gather insights into your subscribers' overall email engagement
-
-        Parameters
-        ----------
-        email: str
-            The email whose activity you want to check
-
-        Raises
-        ------
-        ZBApiException
-
-        Returns
-        -------
-        response: ZBGetActivityResponse
-            Returns a ZBGetActivityResponse object if the request was successful
-        """
-
-        return self._request(
-            f"{self.BASE_URL}/activity",
-            ZBGetActivityResponse,
-            params={"email": email}
-        )
 
 
 def initialize(api_key):
