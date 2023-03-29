@@ -83,7 +83,7 @@ except ZBException as e:
 
 * ##### Validate a batch of up to 100 emails at a time
 ```python
-from zerobouncesdk import ZeroBounce, ZBException
+from zerobouncesdk import ZeroBounce, ZBException, ZBValidateBatchElement
 
 zero_bounce = ZeroBounce("<YOUR_API_KEY>")
 

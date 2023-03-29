@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=61.0.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "zerobouncesdk"
+version = "1.0.0"
+description = "ZeroBounce Python API - https://www.zerobounce.net."
+readme = "README.md"
+authors = [{ name = "ZeroBounce", email = "support@zerobounce.net" }]
+license = { file = "LICENSE" }
+classifiers = [
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+]
+keywords = ["zero", "bounce", "sdk"]
+dependencies = ["requests >= 2.22.0"]
+requires-python = ">=3.8"
+
+[project.urls]
+Homepage = "https://github.com/zerobounce/zero-bounce-python-sdk-setup"
