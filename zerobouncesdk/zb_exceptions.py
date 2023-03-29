@@ -8,7 +8,3 @@ class ZBApiException(ZBException):
 
 class ZBClientException(ZBException):
     pass
-
-
-class ZBMissingApiKeyException(ZBException):
-    pass

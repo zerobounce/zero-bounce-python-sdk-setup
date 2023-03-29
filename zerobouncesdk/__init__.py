@@ -1,5 +1,3 @@
-from zerobouncesdk.zb_exceptions import ZBMissingApiKeyException
-
 from .zb_exceptions import ZBException, ZBApiException, ZBClientException
 from .zb_get_credits_response import ZBGetCreditsResponse
 from .zb_get_api_usage_response import ZBGetApiUsageResponse
