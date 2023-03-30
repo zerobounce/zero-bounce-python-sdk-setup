@@ -165,6 +165,13 @@ class ZeroBounceTestCase(BaseTestCase):
         expected_error = "[Errno 2] No such file or directory: 'invalid_file_path'"
         self.assertEqual(str(cm.exception), expected_error)
 
+    @staticmethod
+    def _delete_file(file: Path):
+        try:
+            file.unlink()
+        except FileNotFoundError:
+            pass
+
     def test_send_file_valid(self):
         self.requests_mock.post.return_value = MockResponse({
             "success": True,
@@ -173,7 +180,7 @@ class ZeroBounceTestCase(BaseTestCase):
             "file_id": "5e87c21f-45b2-4803-8daf-307f29fa7340",
         })
         file = Path("emails.txt")
-        self.addCleanup(file.unlink, missing_ok=True)
+        self.addCleanup(self._delete_file, file=file)
         file.touch()
 
         response = self.zero_bounce_client.send_file("emails.txt", 1)
@@ -210,19 +217,19 @@ class ZeroBounceTestCase(BaseTestCase):
         self.requests_mock.get.return_value = MockResponse(
             json_data=None, 
             content=b""""Email Address","First Name","Last Name","Gender","ZB Status","ZB Sub Status","ZB Account","ZB Domain","ZB First Name","ZB Last Name","ZB Gender","ZB Free Email","ZB MX Found","ZB MX Record","ZB SMTP Provider","ZB Did You Mean"
-                "valid@example.com","","","","valid","","","","zero","bounce","male","False","true","mx.example.com","example",""
-                "spamtrap@example.com","","","","spamtrap","","","","zero","bounce","male","False","true","mx.example.com","example",""
-                "invalid@example.com","","","","invalid","mailbox_not_found","","","zero","bounce","male","False","true","mx.example.com","example",""
-                "catchall@example.com","","","","do_not_mail","global_suppression","catchall","example.com","","","","False","false","","",""
+"valid@example.com","","","","valid","","","","zero","bounce","male","False","true","mx.example.com","example",""
+"spamtrap@example.com","","","","spamtrap","","","","zero","bounce","male","False","true","mx.example.com","example",""
+"invalid@example.com","","","","invalid","mailbox_not_found","","","zero","bounce","male","False","true","mx.example.com","example",""
+"catchall@example.com","","","","do_not_mail","global_suppression","catchall","example.com","","","","False","false","","",""
             """,
             headers={"Content-Type": "application/octet-stream"}
         )
         file = Path("results.txt")
-        self.addCleanup(file.unlink, missing_ok=True)
+        self.addCleanup(self._delete_file, file=file)
 
-        self.assertFalse(file.exists())
+        self.assertFalse(file.is_file())
         response = self.zero_bounce_client.get_file("5e87c21f-45b2-4803-8daf-307f29fa7340", "results.txt")
-        self.assertTrue(file.exists())
+        self.assertTrue(file.is_file())
         self.assertTrue(response.success)
         self.assertEqual(response.local_file_path, "results.txt")
 

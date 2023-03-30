@@ -43,7 +43,8 @@ class ZeroBounce:
         except ValueError as e:
             raise ZBApiException from e
 
-        if error := json_response.pop("error", None):
+        error = json_response.pop("error", None)
+        if error:
             raise ZBApiException(error)
         return response_class(json_response)
 
@@ -381,7 +382,8 @@ class ZeroBounce:
             json_response = response.json()
             return ZBGetFileResponse(json_response)
 
-        if dirname := os.path.dirname(download_path):
+        dirname = os.path.dirname(download_path)
+        if dirname:
             os.makedirs(dirname, exist_ok=True)
         with open(download_path, "wb") as f:
             f.write(response.content)
