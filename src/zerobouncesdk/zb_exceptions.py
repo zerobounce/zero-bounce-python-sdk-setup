@@ -6,5 +6,5 @@ class ZBApiException(ZBException):
     pass
 
 
-class ZBMissingApiKeyException(ZBException):
+class ZBClientException(ZBException):
     pass
