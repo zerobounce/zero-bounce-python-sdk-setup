@@ -23,9 +23,9 @@ from . import (
 class ZeroBounce:
     """The ZeroBounce main class. All the requests are implemented here."""
 
-    BASE_URL = "https://api.zerobounce.net/v2"
-    BULK_BASE_URL = "https://bulkapi.zerobounce.net/v2"
-    SCORING_BASE_URL = "https://bulkapi.zerobounce.net/v2/scoring"
+    BASE_URL = "https://api.zerobounce.in/v2"
+    BULK_BASE_URL = "https://bulkapi.zerobounce.in/v2"
+    SCORING_BASE_URL = "https://bulkapi.zerobounce.in/v2/scoring"
 
     def __init__(self, api_key: str):
         if not api_key.strip():
