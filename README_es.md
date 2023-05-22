@@ -1,62 +1,62 @@
 ## Zero Bounce Python SDK
-This SDK contains methods for interacting easily with ZeroBounce API.
-More information about ZeroBounce you can find in the [official documentation](https://www.zerobounce.net/docs/).
+Este SDK contiene métodos para interactuar fácilmente con la API de ZeroBounce.
+Puedes encontrar más información sobre ZeroBounce en la [documentación oficial](https://www.zerobounce.net/docs/).
 
-## INSTALLATION
+## INSTALACIÓN
 ```bash
 pip install zerobouncesdk
 ```
 
-## USAGE
-Import the sdk in your file:
+## USO
+Importa el SDK en tu archivo:
 
 ```python
 from zerobouncesdk import ZeroBounce
-``` 
-
-Initialize the sdk with your api key:
-
-```python 
-zero_bounce = ZeroBounce("<YOUR_API_KEY>")
 ```
 
-## Examples
-Then you can use any of the SDK methods, for example:
+Inicializa el SDK con tu clave de API:
 
-* ##### Check how many credits you have left on your account
+```python
+zero_bounce = ZeroBounce("<TU_CLAVE_DE_API>")
+```
+
+## Ejemplos
+Luego puedes utilizar cualquiera de los métodos del SDK, por ejemplo:
+
+* ##### Verificar cuántos créditos te quedan en tu cuenta
 ```python
 from zerobouncesdk import ZeroBounce
 
-zero_bounce = ZeroBounce("<YOUR_API_KEY>")
+zero_bounce = ZeroBounce("<TU_CLAVE_DE_API>")
 
 response = zero_bounce.get_credits()
 print("ZeroBounce get_credits response: " + response)
 ```
 
-* ##### Check your API usage for a given period of time
+* ##### Verificar el uso de tu API durante un período de tiempo específico
 ```python
 from datetime import datetime
 from zerobouncesdk import ZeroBounce, ZBException
 
-zero_bounce = ZeroBounce("<YOUR_API_KEY>")
+zero_bounce = ZeroBounce("<TU_CLAVE_DE_API>")
 
-start_date = datetime(2019, 8, 1);  // The start date of when you want to view API usage
-end_date = datetime(2019, 9, 1);    // The end date of when you want to view API usage
+fecha_inicio = datetime(2019, 8, 1)  # Fecha de inicio para ver el uso de la API
+fecha_fin = datetime(2019, 9, 1)    # Fecha de fin para ver el uso de la API
 
 try:
-    response = zero_bounce.get_api_usage(start_date, end_date)
+    response = zero_bounce.get_api_usage(fecha_inicio, fecha_fin)
     print("ZeroBounce get_api_usage response: " + response)
 except ZBException as e:
     print("ZeroBounce get_api_usage error: " + str(e))
 ```
 
-* ##### Gather insights into your subscribers' overall email engagement
+* ##### Obtener información sobre la participación general por correo electrónico de tus suscriptores
 ```python
 from zerobouncesdk import ZeroBounce, ZBException
 
-zero_bounce = ZeroBounce("<YOUR_API_KEY>")
+zero_bounce = ZeroBounce("<TU_CLAVE_DE_API>")
 
-email = "valid@example.com";    // Subscriber email address
+email = "valid@example.com"  # Dirección de correo electrónico del suscriptor
 
 try:
     response = zero_bounce.get_activity(email)
@@ -65,14 +65,14 @@ except ZBException as e:
     print("ZeroBounce get_activity error: " + str(e))
 ```
 
-* ##### Validate an email address
+* ##### Validar una dirección de correo electrónico
 ```python
 from zerobouncesdk import ZeroBounce, ZBException
 
-zero_bounce = ZeroBounce("<YOUR_API_KEY>")
+zero_bounce = ZeroBounce("<TU_CLAVE_DE_API>")
 
-email = "<EMAIL_ADDRESS>"   // The email address you want to validate
-ip_address = "127.0.0.1"    // The IP Address the email signed up from (Optional)
+email = "<DIRECCIÓN_DE_CORREO_ELECTRÓNICO>"   # La dirección de correo electrónico que deseas validar
+ip_address = "127.0.0.1"    # La dirección IP desde la que se registró el correo electrónico (opcional)
 
 try:
     response = zero_bounce.validate(email, ip_address)
@@ -81,171 +81,177 @@ except ZBException as e:
     print("ZeroBounce validate error: " + str(e))
 ```
 
-* ##### Validate a batch of up to 100 emails at a time
+* ##### Validar un lote de hasta 100 correos electrónicos a la vez
 ```python
 from zerobouncesdk import ZeroBounce, ZBException, ZBValidateBatchElement
 
-zero_bounce = ZeroBounce("<YOUR_API_KEY>")
+zero_bounce = ZeroBounce("<TU_CLAVE_DE_API>")
 
-email_batch = [
+lote_correos = [
     ZBValidateBatchElement("valid@example.com", "127.0.0.1"),
     ZBValidateBatchElement("invalid@example.com"),
-]                   // The batch of emails you want to validate
+]  # El lote de correos electrónicos que deseas validar
 
-try:
-    response = zero_bounce.validate_batch(email_batch)
+try
+
+:
+    response = zero_bounce.validate_batch(lote_correos)
     print("ZeroBounce validate_batch response: " + response)
 except ZBException as e:
     print("ZeroBounce validate_batch error: " + str(e))
 ```
 
-* ##### The _sendFile_ API allows user to send a file for bulk email validation
+* ##### El API _sendFile_ permite enviar un archivo para validar correos electrónicos en masa
 ```python
 from zerobouncesdk import ZeroBounce, ZBException
 
-zero_bounce = ZeroBounce("<YOUR_API_KEY>")
+zero_bounce = ZeroBounce("<TU_CLAVE_DE_API>")
 
-file_path = './email_file.csv'  // The csv or txt file
-email_address_column = 1        // The index of "email" column in the file. Index starts at 1
-return_url = "https://domain.com/called/after/processing/request"
-first_name_column = None        // The index of "first name" column in the file
-last_name_column = None         // The index of "last name" column in the file
-gender_column = None            // The index of "gender" column in the file
-ip_address_column = None        // The index of "IP address" column in the file
-has_header_row = False          // If the first row from the submitted file is a header row
-remove_duplicate = True         // If you want the system to remove duplicate emails
+ruta_archivo = './archivo_correos.csv'  # Ruta del archivo CSV o TXT
+columna_direccion_correo = 1  # Índice de la columna "email" en el archivo (el índice comienza en 1)
+url_retorno = "https://dominio.com/llamada/despues/procesar/solicitud"
+columna_nombre = None  # Índice de la columna "nombre" en el archivo
+columna_apellido = None  # Índice de la columna "apellido" en el archivo
+columna_genero = None  # Índice de la columna "género" en el archivo
+columna_direccion_ip = None  # Índice de la columna "dirección IP" en el archivo
+tiene_encabezado = False  # Si la primera fila del archivo es una fila de encabezado
+eliminar_duplicados = True  # Si deseas que el sistema elimine correos electrónicos duplicados
 
 try:
     response = zero_bounce.send_file(
-        file_path,
-        email_address_column,
-        return_url,
-        first_name_column,
-        last_name_column,
-        gender_column,
-        ip_address_column,
-        has_header_row,
-        remove_duplicate,
+        ruta_archivo,
+        columna_direccion_correo,
+        url_retorno,
+        columna_nombre,
+        columna_apellido,
+        columna_genero,
+        columna_direccion_ip,
+        tiene_encabezado,
+        eliminar_duplicados,
     )
     print("ZeroBounce send_file response: " + response)
 except ZBException as e:
     print("ZeroBounce send_file error: " + str(e))
 ```
 
-* ##### Check the status of a file uploaded via _sendFile_ method
+* ##### Verificar el estado de un archivo enviado mediante el método _sendFile_
 ```python
 from zerobouncesdk import ZeroBounce, ZBException
 
-zero_bounce = ZeroBounce("<YOUR_API_KEY>")
+zero_bounce = ZeroBounce("<TU_CLAVE_DE_API>")
 
-file_id = "<FILE_ID>"       // The returned file ID when calling sendFile API
+id_archivo = "<ID_DE_ARCHIVO>"  # ID de archivo devuelto al llamar al método sendFile
 
 try:
-    response = zero_bounce.file_status(file_id)
+    response = zero_bounce.file_status(id_archivo)
     print("ZeroBounce file_status response: " + response)
 except ZBException as e:
     print("ZeroBounce file_status error: " + str(e))
 ```
 
-* ##### The _getfile_ API allows users to get the validation results file for the file been submitted using _sendFile_ API
+* ##### El API _getfile_ permite a los usuarios obtener el archivo con los resultados de validación del archivo enviado mediante el método _sendFile_
 ```python
 from zerobouncesdk import ZeroBounce, ZBException
 
-zero_bounce = ZeroBounce("<YOUR_API_KEY>")
+zero_bounce = ZeroBounce("<TU_CLAVE_DE_API>")
 
-file_id="<FILE_ID>"                         // The returned file ID when calling sendFile API
-local_download_path = "./dwnld_file.csv"    // The path where the file will be downloaded
+id_archivo = "<ID_DE_ARCHIVO>"  # ID de archivo devuelto al llamar al método sendFile
+ruta_descarga_local = "./archivo_descargado.csv"  # Ruta donde se descargará el archivo
 
 try:
-    response = zero_bounce.get_file(file_id, local_download_path)
+    response = zero_bounce.get_file(id_archivo, ruta_descarga_local)
     print("ZeroBounce get_file response: " + response)
 except ZBException as e:
     print("ZeroBounce get_file error: " + str(e))
 ```
 
-* ##### Delete the file that was submitted using _sendFile_ API. File can be deleted only when its status is `Complete`
+* ##### Eliminar el archivo que se envió mediante el método _sendFile_. El archivo solo se puede eliminar si su estado es `Completado`
 ```python
-from zerobouncesdk import ZeroBounce, ZBException
+from zerobouncesdk import ZeroBounce,
 
-zero_bounce = ZeroBounce("<YOUR_API_KEY>")
+ ZBException
 
-file_id="<FILE_ID>"     // The returned file ID when calling sendFile API
+zero_bounce = ZeroBounce("<TU_CLAVE_DE_API>")
+
+id_archivo = "<ID_DE_ARCHIVO>"  # ID de archivo devuelto al llamar al método sendFile
 
 try:
-    response = zero_bounce.delete_file(file_id)
+    response = zero_bounce.delete_file(id_archivo)
     print("ZeroBounce delete_file response: " + response)
 except ZBException as e:
     print("ZeroBounce delete_file error: " + str(e))
 ```
 
-### AI Scoring API
+### API de puntuación de IA
 
-* ##### The _scoringSendFile_ API allows user to send a file for bulk email scoring
+* ##### El API _scoringSendFile_ permite enviar un archivo para puntuación de correos electrónicos en masa
 ```python
 from zerobouncesdk import ZeroBounce, ZBException
 
-zero_bounce = ZeroBounce("<YOUR_API_KEY>")
+zero_bounce = ZeroBounce("<TU_CLAVE_DE_API>")
 
-file_path = './email_file.csv'  // The csv or txt file
-email_address_column = 1        // The index of "email" column in the file. Index starts at 1
-return_url = "https://domain.com/called/after/processing/request"
-has_header_row = False          // If the first row from the submitted file is a header row
-remove_duplicate = True         // If you want the system to remove duplicate emails
+ruta_archivo = './archivo_correos.csv'  # Ruta del archivo CSV o TXT
+columna_direccion_correo = 1  # Índice de la columna "email" en el archivo (el índice comienza en 1)
+url_retorno = "https://dominio.com/llamada/despues/procesar/solicitud"
+tiene_encabezado = False  # Si la primera fila del archivo es una fila de encabezado
+eliminar_duplicados = True  # Si deseas que el sistema elimine correos electrónicos duplicados
 
 try:
     response = zero_bounce.scoring_send_file(
-        file_path,
-        email_address_column,
-        return_url,
-        has_header_row,
-        remove_duplicate,
+        ruta_archivo,
+        columna_direccion_correo,
+        url_retorno,
+        tiene_encabezado,
+        eliminar_duplicados,
     )
     print("ZeroBounce send_file response: " + response)
 except ZBException as e:
     print("ZeroBounce send_file error: " + str(e))
 ```
 
-* ##### Check the status of a file uploaded via _scoringSendFile_ method
+* ##### Verificar el estado de un archivo enviado mediante el método _scoringSendFile_
 ```python
 from zerobouncesdk import ZeroBounce, ZBException
 
-zero_bounce = ZeroBounce("<YOUR_API_KEY>")
+zero_bounce = ZeroBounce("<TU_CLAVE_DE_API>")
 
-file_id = "<FILE_ID>"       // The returned file ID when calling scoringSendFile API
+id_archivo = "<ID_DE_ARCHIVO>"  # ID de archivo devuelto al llamar al método scoringSendFile
 
 try:
-    response = zero_bounce.scoring_file_status(file_id)
+    response = zero_bounce.scoring_file_status(id_archivo)
     print("ZeroBounce file_status response: " + response)
 except ZBException as e:
     print("ZeroBounce file_status error: " + str(e))
 ```
 
-* ##### The scoring _scoringGetFile_ API allows users to get the validation results file for the file been submitted using scoring _scoringSendFile_ API
+* ##### El API _scoringGetFile_ permite a los usuarios obtener el archivo con los resultados de puntuación del archivo enviado mediante el método _scoringSendFile_
 ```python
 from zerobouncesdk import ZeroBounce, ZBException
 
-zero_bounce = ZeroBounce("<YOUR_API_KEY>")
+zero_bounce = ZeroBounce("<TU_CLAVE_DE_API>")
 
-file_id="<FILE_ID>"                         // The returned file ID when calling scoringSendFile API
-local_download_path = "./dwnld_file.csv"    // The path where the file will be downloaded
+id_archivo = "<ID_DE_ARCHIVO>"  # ID de archivo devuelto al llamar al método scoringSendFile
+ruta_descarga_local = "./archivo_descargado.csv"  # Ruta donde se descargará el archivo
 
 try:
-    response = zero_bounce.scoring_get_file(file_id, local_download_path)
+    response = zero_bounce.scoring_get_file(id_archivo, ruta_descarga_local)
     print("ZeroBounce get_file response: " + response)
 except ZBException as e:
     print("ZeroBounce get_file error: " + str(e))
 ```
 
-* ##### Delete the file that was submitted using _scoringSendFile_ API. File can be deleted only when its status is `Complete`
+* ##### Eliminar el archivo que se envió mediante el método _scoringSendFile_. El archivo solo se puede eliminar si su estado es `Completado`
 ```python
 from zerobouncesdk import ZeroBounce, ZBException
 
-zero_bounce = ZeroBounce("<YOUR_API_KEY>")
+zero_bounce = ZeroBounce("<TU_CLAVE_DE_API>")
 
-file_id="<FILE_ID>"     // The returned file ID when calling scoringSendFile API
+id_archivo = "<ID_DE_ARCHIVO>"  # ID de archivo devuelto
+
+ al llamar al método scoringSendFile
 
 try:
-    response = zero_bounce.scoring_delete_file(file_id)
+    response = zero_bounce.scoring_delete_file(id_archivo)
     print("ZeroBounce delete_file response: " + response)
 except ZBException as e:
     print("ZeroBounce delete_file error: " + str(e))
