@@ -1,13 +1,9 @@
-## Zero Bounce Python SDK
-This SDK contains methods for interacting easily with ZeroBounce API.
-More information about ZeroBounce you can find in the [official documentation](https://www.zerobounce.net/docs/).
-
-## INSTALLATION
+#### INSTALLATION
 ```bash
 pip install zerobouncesdk
 ```
 
-## USAGE
+#### USAGE
 Import the sdk in your file:
 
 ```python
@@ -20,10 +16,10 @@ Initialize the sdk with your api key:
 zero_bounce = ZeroBounce("<YOUR_API_KEY>")
 ```
 
-## Examples
+#### Examples
 Then you can use any of the SDK methods, for example:
 
-* ##### Check how many credits you have left on your account
+* ####### Check how many credits you have left on your account
 ```python
 from zerobouncesdk import ZeroBounce
 
@@ -33,7 +29,7 @@ response = zero_bounce.get_credits()
 print("ZeroBounce get_credits response: " + response)
 ```
 
-* ##### Check your API usage for a given period of time
+* ####### Check your API usage for a given period of time
 ```python
 from datetime import datetime
 from zerobouncesdk import ZeroBounce, ZBException
@@ -50,7 +46,7 @@ except ZBException as e:
     print("ZeroBounce get_api_usage error: " + str(e))
 ```
 
-* ##### Gather insights into your subscribers' overall email engagement
+* ####### Gather insights into your subscribers' overall email engagement
 ```python
 from zerobouncesdk import ZeroBounce, ZBException
 
@@ -65,7 +61,7 @@ except ZBException as e:
     print("ZeroBounce get_activity error: " + str(e))
 ```
 
-* ##### Validate an email address
+* ####### Validate an email address
 ```python
 from zerobouncesdk import ZeroBounce, ZBException
 
@@ -81,7 +77,7 @@ except ZBException as e:
     print("ZeroBounce validate error: " + str(e))
 ```
 
-* ##### Validate a batch of up to 100 emails at a time
+* ####### Validate a batch of up to 100 emails at a time
 ```python
 from zerobouncesdk import ZeroBounce, ZBException, ZBValidateBatchElement
 
@@ -99,7 +95,7 @@ except ZBException as e:
     print("ZeroBounce validate_batch error: " + str(e))
 ```
 
-* ##### The _sendFile_ API allows user to send a file for bulk email validation
+* ####### The _sendFile_ API allows user to send a file for bulk email validation
 ```python
 from zerobouncesdk import ZeroBounce, ZBException
 
@@ -132,7 +128,7 @@ except ZBException as e:
     print("ZeroBounce send_file error: " + str(e))
 ```
 
-* ##### Check the status of a file uploaded via _sendFile_ method
+* ####### Check the status of a file uploaded via _sendFile_ method
 ```python
 from zerobouncesdk import ZeroBounce, ZBException
 
@@ -147,7 +143,7 @@ except ZBException as e:
     print("ZeroBounce file_status error: " + str(e))
 ```
 
-* ##### The _getfile_ API allows users to get the validation results file for the file been submitted using _sendFile_ API
+* ####### The _getfile_ API allows users to get the validation results file for the file been submitted using _sendFile_ API
 ```python
 from zerobouncesdk import ZeroBounce, ZBException
 
@@ -163,7 +159,7 @@ except ZBException as e:
     print("ZeroBounce get_file error: " + str(e))
 ```
 
-* ##### Delete the file that was submitted using _sendFile_ API. File can be deleted only when its status is `Complete`
+* ####### Delete the file that was submitted using _sendFile_ API. File can be deleted only when its status is `Complete`
 ```python
 from zerobouncesdk import ZeroBounce, ZBException
 
@@ -178,9 +174,9 @@ except ZBException as e:
     print("ZeroBounce delete_file error: " + str(e))
 ```
 
-### AI Scoring API
+##### AI Scoring API
 
-* ##### The _scoringSendFile_ API allows user to send a file for bulk email scoring
+* ####### The _scoringSendFile_ API allows user to send a file for bulk email scoring
 ```python
 from zerobouncesdk import ZeroBounce, ZBException
 
@@ -205,7 +201,7 @@ except ZBException as e:
     print("ZeroBounce send_file error: " + str(e))
 ```
 
-* ##### Check the status of a file uploaded via _scoringSendFile_ method
+* ####### Check the status of a file uploaded via _scoringSendFile_ method
 ```python
 from zerobouncesdk import ZeroBounce, ZBException
 
@@ -220,7 +216,7 @@ except ZBException as e:
     print("ZeroBounce file_status error: " + str(e))
 ```
 
-* ##### The scoring _scoringGetFile_ API allows users to get the validation results file for the file been submitted using scoring _scoringSendFile_ API
+* ####### The scoring _scoringGetFile_ API allows users to get the validation results file for the file been submitted using scoring _scoringSendFile_ API
 ```python
 from zerobouncesdk import ZeroBounce, ZBException
 
@@ -236,7 +232,7 @@ except ZBException as e:
     print("ZeroBounce get_file error: " + str(e))
 ```
 
-* ##### Delete the file that was submitted using _scoringSendFile_ API. File can be deleted only when its status is `Complete`
+* ####### Delete the file that was submitted using _scoringSendFile_ API. File can be deleted only when its status is `Complete`
 ```python
 from zerobouncesdk import ZeroBounce, ZBException
 
