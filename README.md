@@ -1,10 +1,10 @@
-## Zero Bounce Python SDK
-This SDK contains methods for interacting easily with ZeroBounce API.
-More information about ZeroBounce you can find in the [official documentation](https://www.zerobounce.net/docs/).
+## Zero Bounce India Python SDK
+This SDK contains methods for interacting easily with ZeroBounce India API.
+More information about ZeroBounce India you can find in the [official documentation](https://www.zerobounce.in/docs/).
 
 ## INSTALLATION
 ```bash
-pip install zerobouncesdk
+pip install zerobounceindiasdk
 ```
 
 ## USAGE
@@ -107,7 +107,9 @@ zero_bounce = ZeroBounce("<YOUR_API_KEY>")
 
 file_path = './email_file.csv'  # The csv or txt file
 email_address_column = 1        # The index of "email" column in the file. Index starts at 1
-return_url = "https:#domain.com/called/after/processing/request"
+
+return_url = "https://domain.com/called/after/processing/request"
+
 first_name_column = None        # The index of "first name" column in the file
 last_name_column = None         # The index of "last name" column in the file
 gender_column = None            # The index of "gender" column in the file
@@ -188,7 +190,9 @@ zero_bounce = ZeroBounce("<YOUR_API_KEY>")
 
 file_path = './email_file.csv'  # The csv or txt file
 email_address_column = 1        # The index of "email" column in the file. Index starts at 1
-return_url = "https:#domain.com/called/after/processing/request"
+
+return_url = "https://domain.com/called/after/processing/request"
+
 has_header_row = False          # If the first row from the submitted file is a header row
 remove_duplicate = True         # If you want the system to remove duplicate emails
 
