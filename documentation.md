@@ -1,6 +1,6 @@
 #### INSTALLATION
 ```bash
-pip install zerobounceindiasdk
+pip install zerobouncesdk
 ```
 
 #### USAGE
