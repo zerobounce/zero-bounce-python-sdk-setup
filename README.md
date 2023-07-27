@@ -1,10 +1,10 @@
-## Zero Bounce India Python SDK
-This SDK contains methods for interacting easily with ZeroBounce India API.
-More information about ZeroBounce India you can find in the [official documentation](https://www.zerobounce.in/docs/).
+## Zero Bounce Python SDK
+This SDK contains methods for interacting easily with ZeroBounce API.
+More information about ZeroBounce you can find in the [official documentation](https://www.zerobounce.com/docs/).
 
 ## INSTALLATION
 ```bash
-pip install zerobounceindiasdk
+pip install zerobouncesdk
 ```
 
 ## USAGE
