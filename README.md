@@ -1,6 +1,6 @@
 ## Zero Bounce Python SDK
 This SDK contains methods for interacting easily with ZeroBounce API.
-More information about ZeroBounce you can find in the [official documentation](https://www.zerobounce.com/docs/).
+More information about ZeroBounce you can find in the [official documentation](https://www.zerobounce.net/docs/).
 
 ## INSTALLATION
 ```bash
