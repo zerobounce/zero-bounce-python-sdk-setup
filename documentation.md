@@ -26,7 +26,7 @@ from zerobouncesdk import ZeroBounce
 zero_bounce = ZeroBounce("<YOUR_API_KEY>")
 
 response = zero_bounce.get_credits()
-print("ZeroBounce get_credits response: " + response)
+print("ZeroBounce get_credits response: " + str(response))
 ```
 
 * ####### Check your API usage for a given period of time
@@ -36,12 +36,12 @@ from zerobouncesdk import ZeroBounce, ZBException
 
 zero_bounce = ZeroBounce("<YOUR_API_KEY>")
 
-start_date = datetime(2019, 8, 1);  // The start date of when you want to view API usage
-end_date = datetime(2019, 9, 1);    // The end date of when you want to view API usage
+start_date = datetime(2019, 8, 1);  # The start date of when you want to view API usage
+end_date = datetime(2019, 9, 1);    # The end date of when you want to view API usage
 
 try:
     response = zero_bounce.get_api_usage(start_date, end_date)
-    print("ZeroBounce get_api_usage response: " + response)
+    print("ZeroBounce get_api_usage response: " + str(response))
 except ZBException as e:
     print("ZeroBounce get_api_usage error: " + str(e))
 ```
@@ -52,11 +52,11 @@ from zerobouncesdk import ZeroBounce, ZBException
 
 zero_bounce = ZeroBounce("<YOUR_API_KEY>")
 
-email = "valid@example.com";    // Subscriber email address
+email = "valid@example.com";    # Subscriber email address
 
 try:
     response = zero_bounce.get_activity(email)
-    print("ZeroBounce get_activity response: " + response)
+    print("ZeroBounce get_activity response: " + str(response))
 except ZBException as e:
     print("ZeroBounce get_activity error: " + str(e))
 ```
@@ -67,12 +67,12 @@ from zerobouncesdk import ZeroBounce, ZBException
 
 zero_bounce = ZeroBounce("<YOUR_API_KEY>")
 
-email = "<EMAIL_ADDRESS>"   // The email address you want to validate
-ip_address = "127.0.0.1"    // The IP Address the email signed up from (Optional)
+email = "<EMAIL_ADDRESS>"   # The email address you want to validate
+ip_address = "127.0.0.1"    # The IP Address the email signed up from (Optional)
 
 try:
     response = zero_bounce.validate(email, ip_address)
-    print("ZeroBounce validate response: " + response)
+    print("ZeroBounce validate response: " + str(response))
 except ZBException as e:
     print("ZeroBounce validate error: " + str(e))
 ```
@@ -86,11 +86,11 @@ zero_bounce = ZeroBounce("<YOUR_API_KEY>")
 email_batch = [
     ZBValidateBatchElement("valid@example.com", "127.0.0.1"),
     ZBValidateBatchElement("invalid@example.com"),
-]                   // The batch of emails you want to validate
+]                   # The batch of emails you want to validate
 
 try:
     response = zero_bounce.validate_batch(email_batch)
-    print("ZeroBounce validate_batch response: " + response)
+    print("ZeroBounce validate_batch response: " + str(response))
 except ZBException as e:
     print("ZeroBounce validate_batch error: " + str(e))
 ```
@@ -101,15 +101,15 @@ from zerobouncesdk import ZeroBounce, ZBException
 
 zero_bounce = ZeroBounce("<YOUR_API_KEY>")
 
-file_path = './email_file.csv'  // The csv or txt file
-email_address_column = 1        // The index of "email" column in the file. Index starts at 1
+file_path = './email_file.csv'  # The csv or txt file
+email_address_column = 1        # The index of "email" column in the file. Index starts at 1
 return_url = "https://domain.com/called/after/processing/request"
-first_name_column = None        // The index of "first name" column in the file
-last_name_column = None         // The index of "last name" column in the file
-gender_column = None            // The index of "gender" column in the file
-ip_address_column = None        // The index of "IP address" column in the file
-has_header_row = False          // If the first row from the submitted file is a header row
-remove_duplicate = True         // If you want the system to remove duplicate emails
+first_name_column = None        # The index of "first name" column in the file
+last_name_column = None         # The index of "last name" column in the file
+gender_column = None            # The index of "gender" column in the file
+ip_address_column = None        # The index of "IP address" column in the file
+has_header_row = False          # If the first row from the submitted file is a header row
+remove_duplicate = True         # If you want the system to remove duplicate emails
 
 try:
     response = zero_bounce.send_file(
@@ -123,7 +123,7 @@ try:
         has_header_row,
         remove_duplicate,
     )
-    print("ZeroBounce send_file response: " + response)
+    print("ZeroBounce send_file response: " + str(response))
 except ZBException as e:
     print("ZeroBounce send_file error: " + str(e))
 ```
@@ -134,11 +134,11 @@ from zerobouncesdk import ZeroBounce, ZBException
 
 zero_bounce = ZeroBounce("<YOUR_API_KEY>")
 
-file_id = "<FILE_ID>"       // The returned file ID when calling sendFile API
+file_id = "<FILE_ID>"       # The returned file ID when calling sendFile API
 
 try:
     response = zero_bounce.file_status(file_id)
-    print("ZeroBounce file_status response: " + response)
+    print("ZeroBounce file_status response: " + str(response))
 except ZBException as e:
     print("ZeroBounce file_status error: " + str(e))
 ```
@@ -149,12 +149,12 @@ from zerobouncesdk import ZeroBounce, ZBException
 
 zero_bounce = ZeroBounce("<YOUR_API_KEY>")
 
-file_id="<FILE_ID>"                         // The returned file ID when calling sendFile API
-local_download_path = "./dwnld_file.csv"    // The path where the file will be downloaded
+file_id="<FILE_ID>"                         # The returned file ID when calling sendFile API
+local_download_path = "./dwnld_file.csv"    # The path where the file will be downloaded
 
 try:
     response = zero_bounce.get_file(file_id, local_download_path)
-    print("ZeroBounce get_file response: " + response)
+    print("ZeroBounce get_file response: " + str(response))
 except ZBException as e:
     print("ZeroBounce get_file error: " + str(e))
 ```
@@ -165,11 +165,11 @@ from zerobouncesdk import ZeroBounce, ZBException
 
 zero_bounce = ZeroBounce("<YOUR_API_KEY>")
 
-file_id="<FILE_ID>"     // The returned file ID when calling sendFile API
+file_id="<FILE_ID>"     # The returned file ID when calling sendFile API
 
 try:
     response = zero_bounce.delete_file(file_id)
-    print("ZeroBounce delete_file response: " + response)
+    print("ZeroBounce delete_file response: " + str(response))
 except ZBException as e:
     print("ZeroBounce delete_file error: " + str(e))
 ```
@@ -182,11 +182,11 @@ from zerobouncesdk import ZeroBounce, ZBException
 
 zero_bounce = ZeroBounce("<YOUR_API_KEY>")
 
-file_path = './email_file.csv'  // The csv or txt file
-email_address_column = 1        // The index of "email" column in the file. Index starts at 1
+file_path = './email_file.csv'  # The csv or txt file
+email_address_column = 1        # The index of "email" column in the file. Index starts at 1
 return_url = "https://domain.com/called/after/processing/request"
-has_header_row = False          // If the first row from the submitted file is a header row
-remove_duplicate = True         // If you want the system to remove duplicate emails
+has_header_row = False          # If the first row from the submitted file is a header row
+remove_duplicate = True         # If you want the system to remove duplicate emails
 
 try:
     response = zero_bounce.scoring_send_file(
@@ -196,7 +196,7 @@ try:
         has_header_row,
         remove_duplicate,
     )
-    print("ZeroBounce send_file response: " + response)
+    print("ZeroBounce send_file response: " + str(response))
 except ZBException as e:
     print("ZeroBounce send_file error: " + str(e))
 ```
@@ -207,11 +207,11 @@ from zerobouncesdk import ZeroBounce, ZBException
 
 zero_bounce = ZeroBounce("<YOUR_API_KEY>")
 
-file_id = "<FILE_ID>"       // The returned file ID when calling scoringSendFile API
+file_id = "<FILE_ID>"       # The returned file ID when calling scoringSendFile API
 
 try:
     response = zero_bounce.scoring_file_status(file_id)
-    print("ZeroBounce file_status response: " + response)
+    print("ZeroBounce file_status response: " + str(response))
 except ZBException as e:
     print("ZeroBounce file_status error: " + str(e))
 ```
@@ -222,12 +222,12 @@ from zerobouncesdk import ZeroBounce, ZBException
 
 zero_bounce = ZeroBounce("<YOUR_API_KEY>")
 
-file_id="<FILE_ID>"                         // The returned file ID when calling scoringSendFile API
-local_download_path = "./dwnld_file.csv"    // The path where the file will be downloaded
+file_id="<FILE_ID>"                         # The returned file ID when calling scoringSendFile API
+local_download_path = "./dwnld_file.csv"    # The path where the file will be downloaded
 
 try:
     response = zero_bounce.scoring_get_file(file_id, local_download_path)
-    print("ZeroBounce get_file response: " + response)
+    print("ZeroBounce get_file response: " + str(response))
 except ZBException as e:
     print("ZeroBounce get_file error: " + str(e))
 ```
@@ -238,11 +238,11 @@ from zerobouncesdk import ZeroBounce, ZBException
 
 zero_bounce = ZeroBounce("<YOUR_API_KEY>")
 
-file_id="<FILE_ID>"     // The returned file ID when calling scoringSendFile API
+file_id="<FILE_ID>"     # The returned file ID when calling scoringSendFile API
 
 try:
     response = zero_bounce.scoring_delete_file(file_id)
-    print("ZeroBounce delete_file response: " + response)
+    print("ZeroBounce delete_file response: " + str(response))
 except ZBException as e:
     print("ZeroBounce delete_file error: " + str(e))
 ```

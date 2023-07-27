@@ -26,7 +26,7 @@ from zerobouncesdk import ZeroBounce
 zero_bounce = ZeroBounce("<TU_CLAVE_DE_API>")
 
 response = zero_bounce.get_credits()
-print("ZeroBounce get_credits response: " + response)
+print("ZeroBounce get_credits response: " + str(response))
 ```
 
 * ####### Verificar el uso de tu API durante un período de tiempo específico
@@ -41,7 +41,7 @@ fecha_fin = datetime(2019, 9, 1)    ### Fecha de fin para ver el uso de la API
 
 try:
     response = zero_bounce.get_api_usage(fecha_inicio, fecha_fin)
-    print("ZeroBounce get_api_usage response: " + response)
+    print("ZeroBounce get_api_usage response: " + str(response))
 except ZBException as e:
     print("ZeroBounce get_api_usage error: " + str(e))
 ```
@@ -56,7 +56,7 @@ email = "valid@example.com"  ### Dirección de correo electrónico del suscripto
 
 try:
     response = zero_bounce.get_activity(email)
-    print("ZeroBounce get_activity response: " + response)
+    print("ZeroBounce get_activity response: " + str(response))
 except ZBException as e:
     print("ZeroBounce get_activity error: " + str(e))
 ```
@@ -72,7 +72,7 @@ ip_address = "127.0.0.1"    ### La dirección IP desde la que se registró el co
 
 try:
     response = zero_bounce.validate(email, ip_address)
-    print("ZeroBounce validate response: " + response)
+    print("ZeroBounce validate response: " + str(response))
 except ZBException as e:
     print("ZeroBounce validate error: " + str(e))
 ```
@@ -92,7 +92,7 @@ try
 
 :
     response = zero_bounce.validate_batch(lote_correos)
-    print("ZeroBounce validate_batch response: " + response)
+    print("ZeroBounce validate_batch response: " + str(response))
 except ZBException as e:
     print("ZeroBounce validate_batch error: " + str(e))
 ```
@@ -125,7 +125,7 @@ try:
         tiene_encabezado,
         eliminar_duplicados,
     )
-    print("ZeroBounce send_file response: " + response)
+    print("ZeroBounce send_file response: " + str(response))
 except ZBException as e:
     print("ZeroBounce send_file error: " + str(e))
 ```
@@ -140,7 +140,7 @@ id_archivo = "<ID_DE_ARCHIVO>"  ### ID de archivo devuelto al llamar al método 
 
 try:
     response = zero_bounce.file_status(id_archivo)
-    print("ZeroBounce file_status response: " + response)
+    print("ZeroBounce file_status response: " + str(response))
 except ZBException as e:
     print("ZeroBounce file_status error: " + str(e))
 ```
@@ -156,7 +156,7 @@ ruta_descarga_local = "./archivo_descargado.csv"  ### Ruta donde se descargará 
 
 try:
     response = zero_bounce.get_file(id_archivo, ruta_descarga_local)
-    print("ZeroBounce get_file response: " + response)
+    print("ZeroBounce get_file response: " + str(response))
 except ZBException as e:
     print("ZeroBounce get_file error: " + str(e))
 ```
@@ -173,7 +173,7 @@ id_archivo = "<ID_DE_ARCHIVO>"  ### ID de archivo devuelto al llamar al método 
 
 try:
     response = zero_bounce.delete_file(id_archivo)
-    print("ZeroBounce delete_file response: " + response)
+    print("ZeroBounce delete_file response: " + str(response))
 except ZBException as e:
     print("ZeroBounce delete_file error: " + str(e))
 ```
@@ -200,7 +200,7 @@ try:
         tiene_encabezado,
         eliminar_duplicados,
     )
-    print("ZeroBounce send_file response: " + response)
+    print("ZeroBounce send_file response: " + str(response))
 except ZBException as e:
     print("ZeroBounce send_file error: " + str(e))
 ```
@@ -215,7 +215,7 @@ id_archivo = "<ID_DE_ARCHIVO>"  ### ID de archivo devuelto al llamar al método 
 
 try:
     response = zero_bounce.scoring_file_status(id_archivo)
-    print("ZeroBounce file_status response: " + response)
+    print("ZeroBounce file_status response: " + str(response))
 except ZBException as e:
     print("ZeroBounce file_status error: " + str(e))
 ```
@@ -231,7 +231,7 @@ ruta_descarga_local = "./archivo_descargado.csv"  ### Ruta donde se descargará 
 
 try:
     response = zero_bounce.scoring_get_file(id_archivo, ruta_descarga_local)
-    print("ZeroBounce get_file response: " + response)
+    print("ZeroBounce get_file response: " + str(response))
 except ZBException as e:
     print("ZeroBounce get_file error: " + str(e))
 ```
@@ -248,7 +248,7 @@ id_archivo = "<ID_DE_ARCHIVO>"  ### ID de archivo devuelto
 
 try:
     response = zero_bounce.scoring_delete_file(id_archivo)
-    print("ZeroBounce delete_file response: " + response)
+    print("ZeroBounce delete_file response: " + str(response))
 except ZBException as e:
     print("ZeroBounce delete_file error: " + str(e))
 ```
