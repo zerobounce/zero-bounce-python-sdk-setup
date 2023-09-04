@@ -17,6 +17,7 @@ from . import (
     ZBFileStatusResponse,
     ZBGetFileResponse,
     ZBDeleteFileResponse,
+    ZBFindEmailResponse,
 )
 
 
@@ -62,10 +63,7 @@ class ZeroBounce:
             Returns a ZBGetCreditsResponse object if the request was successful
         """
 
-        return self._request(
-            f"{self.BASE_URL}/getcredits",
-            ZBGetCreditsResponse
-        )
+        return self._request(f"{self.BASE_URL}/getcredits", ZBGetCreditsResponse)
 
     def get_api_usage(self, start_date: date, end_date: date):
         """Returns the API usage between the given dates.
@@ -93,7 +91,7 @@ class ZeroBounce:
             params={
                 "start_date": start_date.strftime("%Y-%m-%d"),
                 "end_date": end_date.strftime("%Y-%m-%d"),
-            }
+            },
         )
 
     def get_activity(self, email: str):
@@ -115,9 +113,7 @@ class ZeroBounce:
         """
 
         return self._request(
-            f"{self.BASE_URL}/activity",
-            ZBGetActivityResponse,
-            params={"email": email}
+            f"{self.BASE_URL}/activity", ZBGetActivityResponse, params={"email": email}
         )
 
     def validate(self, email: str, ip_address: str = None):
@@ -146,7 +142,7 @@ class ZeroBounce:
             params={
                 "email": email,
                 "ip_address": ip_address,
-            }
+            },
         )
 
     def validate_batch(self, email_batch: List[ZBValidateBatchElement]):
@@ -177,7 +173,7 @@ class ZeroBounce:
                 "email_batch": [
                     batch_element.to_json() for batch_element in email_batch
                 ],
-            }
+            },
         )
         json_response = response.json()
         try:
@@ -193,18 +189,18 @@ class ZeroBounce:
         email_address_column: int,
         data: dict,
     ):
-        data.update({
-            "api_key": self._api_key,
-            "email_address_column": email_address_column,
-        })
+        data.update(
+            {
+                "api_key": self._api_key,
+                "email_address_column": email_address_column,
+            }
+        )
 
         with open(file_path, "rb") as file:
             response = requests.post(
                 f"{self.SCORING_BASE_URL if scoring else self.BULK_BASE_URL}/sendfile",
                 data=data,
-                files={
-                    "file": (os.path.basename(file_path), file, "text/csv")
-                },
+                files={"file": (os.path.basename(file_path), file, "text/csv")},
             )
         try:
             json_response = response.json()
@@ -325,7 +321,7 @@ class ZeroBounce:
         return self._request(
             f"{self.SCORING_BASE_URL if scoring else self.BULK_BASE_URL}/filestatus",
             ZBFileStatusResponse,
-            params={"file_id": file_id}
+            params={"file_id": file_id},
         )
 
     def file_status(self, file_id: str):
@@ -376,9 +372,9 @@ class ZeroBounce:
             params={
                 "api_key": self._api_key,
                 "file_id": file_id,
-            }
+            },
         )
-        if response.headers['Content-Type'] == "application/json":
+        if response.headers["Content-Type"] == "application/json":
             json_response = response.json()
             return ZBGetFileResponse(json_response)
 
@@ -440,7 +436,7 @@ class ZeroBounce:
         return self._request(
             f"{self.SCORING_BASE_URL if scoring else self.BULK_BASE_URL}/deletefile",
             ZBDeleteFileResponse,
-            params={"file_id": file_id}
+            params={"file_id": file_id},
         )
 
     def delete_file(self, file_id: str):
@@ -486,3 +482,80 @@ class ZeroBounce:
         """
 
         return self._delete_file(True, file_id)
+
+    def find_email(
+        self,
+        domain: str,
+        first_name: str = None,
+        middle_name: str = None,
+        last_name: str = None,
+    ):
+        """Identifies and validates a person's primary email address.
+
+        Parameters
+        ----------
+        start_date: date
+            The start date of when you want to view API usage
+        end_date: date
+            The end date of when you want to view API usage
+        domain: str
+            First name domain to look for.
+        first_name: str
+            First name of the customer
+        middle_name: str
+            Middle name of the customer
+        last_name: str
+            Last_ name of the customer
+
+        Raises
+        ------
+        ZBApiException
+
+        Returns
+        -------
+        response: ZBFindEmailResponse
+            Returns a ZBFindEmailResponse object if the request was successful
+        """
+        params = {"domain": domain}
+        if first_name:
+            params["first_name"] = first_name
+        if middle_name:
+            params["middle_name"] = middle_name
+        if last_name:
+            params["last_name"] = last_name
+
+        return self._request(
+            f"{self.BASE_URL}/guessformat",
+            ZBFindEmailResponse,
+            params,
+        )
+
+
+    def domain_search(self, domain):
+        """Detects possible email address patterns used by a domain/company.
+
+        Parameters
+        ----------
+        start_date: date
+            The start date of when you want to view API usage
+        end_date: date
+            The end date of when you want to view API usage
+        domain: str
+            First name domain to look for.
+        first_name: str
+            First name of the customer
+        middle_name: str
+            Middle name of the customer
+        last_name: str
+            Last_ name of the customer
+
+        Raises
+        ------
+        ZBApiException
+
+        Returns
+        -------
+        response: ZBFindEmailResponse
+            Returns a ZBFindEmailResponse object if the request was successful
+        """
+        return self.find_email(domain)
