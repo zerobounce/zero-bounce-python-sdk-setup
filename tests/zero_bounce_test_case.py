@@ -215,7 +215,7 @@ class ZeroBounceTestCase(BaseTestCase):
 
     def test_get_file_valid(self):
         self.requests_mock.get.return_value = MockResponse(
-            json_data=None, 
+            json_data=None,
             content=b""""Email Address","First Name","Last Name","Gender","ZB Status","ZB Sub Status","ZB Account","ZB Domain","ZB First Name","ZB Last Name","ZB Gender","ZB Free Email","ZB MX Found","ZB MX Record","ZB SMTP Provider","ZB Did You Mean"
 "valid@example.com","","","","valid","","","","zero","bounce","male","False","true","mx.example.com","example",""
 "spamtrap@example.com","","","","spamtrap","","","","zero","bounce","male","False","true","mx.example.com","example",""

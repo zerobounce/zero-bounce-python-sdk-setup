@@ -12,7 +12,7 @@ from . import (
     ZBGetActivityResponse,
     ZBValidateResponse,
     ZBValidateBatchElement,
-    ZBValidateBatchResponse, 
+    ZBValidateBatchResponse,
     ZBSendFileResponse,
     ZBFileStatusResponse,
     ZBGetFileResponse,
@@ -210,12 +210,12 @@ class ZeroBounce:
             json_response = response.json()
         except ValueError as e:
             raise ZBApiException from e
-        
+
         return ZBSendFileResponse(json_response)
 
     def send_file(
         self,
-        file_path: str, 
+        file_path: str,
         email_address_column: int,
         return_url: str = None,
         first_name_column: int = None,
@@ -278,7 +278,7 @@ class ZeroBounce:
 
     def scoring_send_file(
         self,
-        file_path: str, 
+        file_path: str,
         email_address_column: int,
         return_url: str = None,
         has_header_row: bool = False,

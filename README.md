@@ -12,11 +12,11 @@ Import the sdk in your file:
 
 ```python
 from zerobouncesdk import ZeroBounce
-``` 
+```
 
 Initialize the sdk with your api key:
 
-```python 
+```python
 zero_bounce = ZeroBounce("<YOUR_API_KEY>")
 ```
 
