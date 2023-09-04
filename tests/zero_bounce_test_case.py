@@ -246,3 +246,61 @@ class ZeroBounceTestCase(BaseTestCase):
         self.assertEqual(response.message, "File Deleted")
         self.assertEqual(response.file_id, "5e87c21f-45b2-4803-8daf-307f29fa7340")
         self.assertEqual(response.file_name, "emails.txt")
+
+    def test_find_email_status_invalid(self):
+        self.requests_mock.get.return_value = mock_response = MockResponse({
+            "email": "",
+            "domain": "example.com",
+            "format": "unknown",
+            "status": "invalid",
+            "sub_status": "no_dns_entries",
+            "confidence": "undetermined",
+            "did_you_mean": "",
+            "failure_reason": "",
+            "other_domain_formats": []
+        })
+
+        response = self.zero_bounce_client.find_email(
+            "example.com", "John", "", "Doe"
+        )
+        for field, expected_value in mock_response.json().items():
+            self.assertEqual(
+                getattr(response, field), expected_value, f"invalid {field}"
+            )
+
+    def test_find_email_status_valid(self):
+        self.requests_mock.get.return_value = mock_response = MockResponse({
+            "email": "john.doe@example.com",
+            "domain": "example.com",
+            "format": "first.last",
+            "status": "valid",
+            "sub_status": "",
+            "confidence": "high",
+            "did_you_mean": "",
+            "failure_reason": "",
+            "other_domain_formats": [
+                {
+                    "format": "first_last",
+                    "confidence": "high"
+                },
+                {
+                    "format": "first",
+                    "confidence": "medium"
+                }
+            ]
+        })
+
+        response = self.zero_bounce_client.find_email(
+            "example.com", "John", "", "Doe"
+        )
+        for field, expected_value in mock_response.json().items():
+            if field == "other_domain_formats":
+                continue
+            self.assertEqual(
+                getattr(response, field), expected_value, f"invalid {field}"
+            )
+        self.assertEqual(len(response.other_domain_formats), 2)
+        self.assertEqual(response.other_domain_formats[0].format, "first_last")
+        self.assertEqual(response.other_domain_formats[0].confidence, "high")
+        self.assertEqual(response.other_domain_formats[1].format, "first")
+        self.assertEqual(response.other_domain_formats[1].confidence, "medium")
