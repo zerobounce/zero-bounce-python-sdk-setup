@@ -3,7 +3,7 @@ from typing import List
 from ._zb_response import ZBResponse
 
 
-class DomainFormat(ZBResponse):
+class ZBDomainFormat(ZBResponse):
     """This represents how a domain may format its emails
     (and how likely it is to do so a certain way)
     """
@@ -32,7 +32,7 @@ class ZBFindEmailResponse(ZBResponse):
 
     failure_reason: str = None
 
-    other_domain_formats: List[DomainFormat] = []
+    other_domain_formats: List[ZBDomainFormat] = []
 
     def __init__(self, data):
         self.email = data["email"]
@@ -44,5 +44,5 @@ class ZBFindEmailResponse(ZBResponse):
         self.did_you_mean = data["did_you_mean"]
         self.failure_reason = data["failure_reason"]
         self.other_domain_formats = [
-            DomainFormat(df_data) for df_data in data["other_domain_formats"]
+            ZBDomainFormat(df_data) for df_data in data["other_domain_formats"]
         ]
