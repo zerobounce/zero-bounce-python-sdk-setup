@@ -26,7 +26,7 @@ class ZeroBounce:
 
     BASE_URL = "https://api.zerobounce.net/v2"
     BULK_BASE_URL = "https://bulkapi.zerobounce.net/v2"
-    SCORING_BASE_URL = "https://bulkapi.zerobounce.com/v2/scoring"
+    SCORING_BASE_URL = "https://bulkapi.zerobounce.net/v2/scoring"
 
     def __init__(self, api_key: str):
         if not api_key.strip():
@@ -491,6 +491,7 @@ class ZeroBounce:
         last_name: str = None,
     ):
         """Identifies and validates a person's primary email address.
+        When no "name" fields are given, function makes a `domain search`.
 
         Parameters
         ----------
@@ -499,13 +500,13 @@ class ZeroBounce:
         end_date: date
             The end date of when you want to view API usage
         domain: str
-            First name domain to look for.
-        first_name: str
-            First name of the customer
-        middle_name: str
-            Middle name of the customer
-        last_name: str
-            Last_ name of the customer
+            The email domain for which to find the email format.
+        first_name: Optional[str]
+            First name of the person whose email format is being searched
+        middle_name: Optional[str]
+            Middle name of the person whose email format is being searched
+        last_name: Optional[str]
+            Last name of the person whose email format is being searched
 
         Raises
         ------
@@ -530,32 +531,3 @@ class ZeroBounce:
             params,
         )
 
-
-    def domain_search(self, domain):
-        """Detects possible email address patterns used by a domain/company.
-
-        Parameters
-        ----------
-        start_date: date
-            The start date of when you want to view API usage
-        end_date: date
-            The end date of when you want to view API usage
-        domain: str
-            First name domain to look for.
-        first_name: str
-            First name of the customer
-        middle_name: str
-            Middle name of the customer
-        last_name: str
-            Last_ name of the customer
-
-        Raises
-        ------
-        ZBApiException
-
-        Returns
-        -------
-        response: ZBFindEmailResponse
-            Returns a ZBFindEmailResponse object if the request was successful
-        """
-        return self.find_email(domain)

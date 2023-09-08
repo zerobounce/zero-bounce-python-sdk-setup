@@ -79,9 +79,9 @@ last_name = "Doe" # The last name of the person whose email format is being sear
 
 try:
     response = zero_bounce.find_email(domain, first_name, middle_name, last_name)
-    print("ZeroBounce get_activity response: " + response)
+    print("ZeroBounce guess format response: " + response)
 except ZBException as e:
-    print("ZeroBounce get_activity error: " + str(e))
+    print("ZeroBounce guess format error: " + str(e))
 ```
 
 * ##### Validate an email address

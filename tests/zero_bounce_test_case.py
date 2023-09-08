@@ -1,10 +1,12 @@
 from datetime import date, datetime
 from pathlib import Path
 
+
 from . import BaseTestCase, MockResponse
 from zerobouncesdk import (
     ZBApiException,
     ZBClientException,
+    ZBConfidence,
     ZBValidateStatus,
     ZBValidateSubStatus,
     ZBValidateBatchElement,
@@ -248,28 +250,27 @@ class ZeroBounceTestCase(BaseTestCase):
         self.assertEqual(response.file_name, "emails.txt")
 
     def test_find_email_status_invalid(self):
-        self.requests_mock.get.return_value = mock_response = MockResponse({
+        self.requests_mock.get.return_value = MockResponse({
             "email": "",
-            "domain": "example.com",
+            "domain": "invalid.com",
             "format": "unknown",
-            "status": "invalid",
-            "sub_status": "no_dns_entries",
+            "status": "",
+            "sub_status": "",
             "confidence": "undetermined",
             "did_you_mean": "",
-            "failure_reason": "",
+            "failure_reason": "Cannot find pattern for free domains.",
             "other_domain_formats": []
         })
 
         response = self.zero_bounce_client.find_email(
-            "example.com", "John", "", "Doe"
+            "invalid.com", "John", "", "Doe"
         )
-        for field, expected_value in mock_response.json().items():
-            self.assertEqual(
-                getattr(response, field), expected_value, f"invalid {field}"
-            )
+        self.assertEqual(response.domain, "invalid.com")
+        self.assertEqual(response.confidence, ZBConfidence.undetermined)
+        self.assertEqual(response.other_domain_formats, [])
 
     def test_find_email_status_valid(self):
-        self.requests_mock.get.return_value = mock_response = MockResponse({
+        self.requests_mock.get.return_value = MockResponse({
             "email": "john.doe@example.com",
             "domain": "example.com",
             "format": "first.last",
@@ -293,14 +294,12 @@ class ZeroBounceTestCase(BaseTestCase):
         response = self.zero_bounce_client.find_email(
             "example.com", "John", "", "Doe"
         )
-        for field, expected_value in mock_response.json().items():
-            if field == "other_domain_formats":
-                continue
-            self.assertEqual(
-                getattr(response, field), expected_value, f"invalid {field}"
-            )
+        self.assertEqual(response.email, "john.doe@example.com")
+        self.assertEqual(response.status, ZBValidateStatus.valid)
+        self.assertEqual(response.sub_status, ZBValidateSubStatus.none)
+        self.assertEqual(response.confidence, ZBConfidence.high)
         self.assertEqual(len(response.other_domain_formats), 2)
         self.assertEqual(response.other_domain_formats[0].format, "first_last")
-        self.assertEqual(response.other_domain_formats[0].confidence, "high")
+        self.assertEqual(response.other_domain_formats[0].confidence, ZBConfidence.high)
         self.assertEqual(response.other_domain_formats[1].format, "first")
-        self.assertEqual(response.other_domain_formats[1].confidence, "medium")
+        self.assertEqual(response.other_domain_formats[1].confidence, ZBConfidence.medium)
