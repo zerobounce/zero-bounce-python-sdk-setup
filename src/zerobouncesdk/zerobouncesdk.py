@@ -495,10 +495,6 @@ class ZeroBounce:
 
         Parameters
         ----------
-        start_date: date
-            The start date of when you want to view API usage
-        end_date: date
-            The end date of when you want to view API usage
         domain: str
             The email domain for which to find the email format.
         first_name: Optional[str]
