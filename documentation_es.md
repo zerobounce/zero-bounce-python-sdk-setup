@@ -61,6 +61,26 @@ except ZBException as e:
     print("ZeroBounce get_activity error: " + str(e))
 ```
 
+
+* ####### Identify the correct email format when you provide a name and email domain
+
+```python
+from zerobouncesdk import ZeroBounce, ZBException
+
+zero_bounce = ZeroBounce("<YOUR_API_KEY>")
+
+domain = "example.com" # The email domain for which to find the email format
+first_name = "John" # The first name of the person whose email format is being searched
+middle_name = "Quill" # The middle name of the person whose email format is being searched
+last_name = "Doe" # The last name of the person whose email format is being searched
+
+try:
+    response = zero_bounce.find_email(domain, first_name, middle_name, last_name)
+    print("ZeroBounce guess format response: " + response)
+except ZBException as e:
+    print("ZeroBounce guess format error: " + str(e))
+```
+
 * ####### Validar una dirección de correo electrónico
 ```python
 from zerobouncesdk import ZeroBounce, ZBException
