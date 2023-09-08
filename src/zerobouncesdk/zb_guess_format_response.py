@@ -22,7 +22,7 @@ class ZBDomainFormat(ZBResponse):
         self.confidence = ZBConfidence(self.confidence.lower())
 
 
-class ZBFindEmailResponse(ZBResponse):
+class ZBGuessFormatResponse(ZBResponse):
     """This is the response for the GET /guessformat request."""
 
     email: str = None

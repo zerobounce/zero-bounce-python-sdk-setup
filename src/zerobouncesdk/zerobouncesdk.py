@@ -17,7 +17,7 @@ from . import (
     ZBFileStatusResponse,
     ZBGetFileResponse,
     ZBDeleteFileResponse,
-    ZBFindEmailResponse,
+    ZBGuessFormatResponse,
 )
 
 
@@ -483,7 +483,7 @@ class ZeroBounce:
 
         return self._delete_file(True, file_id)
 
-    def find_email(
+    def guess_format(
         self,
         domain: str,
         first_name: str = None,
@@ -514,8 +514,8 @@ class ZeroBounce:
 
         Returns
         -------
-        response: ZBFindEmailResponse
-            Returns a ZBFindEmailResponse object if the request was successful
+        response: ZBGuessFormatResponse
+            Returns a ZBGuessFormatResponse object if the request was successful
         """
         params = {"domain": domain}
         if first_name:
@@ -527,7 +527,7 @@ class ZeroBounce:
 
         return self._request(
             f"{self.BASE_URL}/guessformat",
-            ZBFindEmailResponse,
+            ZBGuessFormatResponse,
             params,
         )
 

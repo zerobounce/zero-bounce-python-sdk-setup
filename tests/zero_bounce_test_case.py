@@ -249,7 +249,7 @@ class ZeroBounceTestCase(BaseTestCase):
         self.assertEqual(response.file_id, "5e87c21f-45b2-4803-8daf-307f29fa7340")
         self.assertEqual(response.file_name, "emails.txt")
 
-    def test_find_email_status_invalid(self):
+    def test_guess_format_status_invalid(self):
         self.requests_mock.get.return_value = MockResponse({
             "email": "",
             "domain": "invalid.com",
@@ -262,14 +262,14 @@ class ZeroBounceTestCase(BaseTestCase):
             "other_domain_formats": []
         })
 
-        response = self.zero_bounce_client.find_email(
+        response = self.zero_bounce_client.guess_format(
             "invalid.com", "John", "", "Doe"
         )
         self.assertEqual(response.domain, "invalid.com")
         self.assertEqual(response.confidence, ZBConfidence.undetermined)
         self.assertEqual(response.other_domain_formats, [])
 
-    def test_find_email_status_valid(self):
+    def test_guess_format_status_valid(self):
         self.requests_mock.get.return_value = MockResponse({
             "email": "john.doe@example.com",
             "domain": "example.com",
@@ -291,7 +291,7 @@ class ZeroBounceTestCase(BaseTestCase):
             ]
         })
 
-        response = self.zero_bounce_client.find_email(
+        response = self.zero_bounce_client.guess_format(
             "example.com", "John", "", "Doe"
         )
         self.assertEqual(response.email, "john.doe@example.com")

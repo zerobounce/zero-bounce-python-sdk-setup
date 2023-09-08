@@ -78,7 +78,7 @@ middle_name = "Quill" # The middle name of the person whose email format is bein
 last_name = "Doe" # The last name of the person whose email format is being searched
 
 try:
-    response = zero_bounce.find_email(domain, first_name, middle_name, last_name)
+    response = zero_bounce.guess_format(domain, first_name, middle_name, last_name)
     print("ZeroBounce guess format response: " + response)
 except ZBException as e:
     print("ZeroBounce guess format error: " + str(e))

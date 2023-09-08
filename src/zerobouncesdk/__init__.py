@@ -11,7 +11,7 @@ from .zb_send_file_response import ZBSendFileResponse
 from .zb_file_status_response import ZBFileStatusResponse
 from .zb_get_file_response import ZBGetFileResponse
 from .zb_delete_file_response import ZBDeleteFileResponse
-from .zb_find_email_response import ZBFindEmailResponse
+from .zb_guess_format_response import ZBGuessFormatResponse
 from zerobouncesdk.zb_confidence import ZBConfidence
 
 from .zerobouncesdk import ZeroBounce
