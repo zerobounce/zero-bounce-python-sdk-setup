@@ -1,10 +1,11 @@
 from typing import List
 
-from zerobouncesdk.zb_confidence import ZBConfidence
-from zerobouncesdk.zb_exceptions import ZBApiException
-from zerobouncesdk.zb_validate_status import ZBValidateStatus
-from zerobouncesdk.zb_validate_sub_status import ZBValidateSubStatus
-
+from . import (
+    ZBConfidence,
+    ZBApiException,
+    ZBValidateStatus,
+    ZBValidateSubStatus,
+)
 from ._zb_response import ZBResponse
 
 
