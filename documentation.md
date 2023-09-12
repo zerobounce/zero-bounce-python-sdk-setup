@@ -8,11 +8,11 @@ Import the sdk in your file:
 
 ```python
 from zerobouncesdk import ZeroBounce
-``` 
+```
 
 Initialize the sdk with your api key:
 
-```python 
+```python
 zero_bounce = ZeroBounce("<YOUR_API_KEY>")
 ```
 
@@ -59,6 +59,25 @@ try:
     print("ZeroBounce get_activity response: " + str(response))
 except ZBException as e:
     print("ZeroBounce get_activity error: " + str(e))
+```
+
+* ####### Identify the correct email format when you provide a name and email domain
+
+```python
+from zerobouncesdk import ZeroBounce, ZBException
+
+zero_bounce = ZeroBounce("<YOUR_API_KEY>")
+
+domain = "example.com" # The email domain for which to find the email format
+first_name = "John" # The first name of the person whose email format is being searched
+middle_name = "Quill" # The middle name of the person whose email format is being searched
+last_name = "Doe" # The last name of the person whose email format is being searched
+
+try:
+    response = zero_bounce.guess_format(domain, first_name, middle_name, last_name)
+    print("ZeroBounce guess format response: " + response)
+except ZBException as e:
+    print("ZeroBounce guess format error: " + str(e))
 ```
 
 * ####### Validate an email address

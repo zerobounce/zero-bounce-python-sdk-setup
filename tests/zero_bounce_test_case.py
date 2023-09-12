@@ -1,10 +1,12 @@
 from datetime import date, datetime
 from pathlib import Path
 
+
 from . import BaseTestCase, MockResponse
 from zerobouncesdk import (
     ZBApiException,
     ZBClientException,
+    ZBConfidence,
     ZBValidateStatus,
     ZBValidateSubStatus,
     ZBValidateBatchElement,
@@ -215,7 +217,7 @@ class ZeroBounceTestCase(BaseTestCase):
 
     def test_get_file_valid(self):
         self.requests_mock.get.return_value = MockResponse(
-            json_data=None, 
+            json_data=None,
             content=b""""Email Address","First Name","Last Name","Gender","ZB Status","ZB Sub Status","ZB Account","ZB Domain","ZB First Name","ZB Last Name","ZB Gender","ZB Free Email","ZB MX Found","ZB MX Record","ZB SMTP Provider","ZB Did You Mean"
 "valid@example.com","","","","valid","","","","zero","bounce","male","False","true","mx.example.com","example",""
 "spamtrap@example.com","","","","spamtrap","","","","zero","bounce","male","False","true","mx.example.com","example",""
@@ -246,3 +248,58 @@ class ZeroBounceTestCase(BaseTestCase):
         self.assertEqual(response.message, "File Deleted")
         self.assertEqual(response.file_id, "5e87c21f-45b2-4803-8daf-307f29fa7340")
         self.assertEqual(response.file_name, "emails.txt")
+
+    def test_guess_format_status_invalid(self):
+        self.requests_mock.get.return_value = MockResponse({
+            "email": "",
+            "domain": "invalid.com",
+            "format": "unknown",
+            "status": "",
+            "sub_status": "",
+            "confidence": "undetermined",
+            "did_you_mean": "",
+            "failure_reason": "Cannot find pattern for free domains.",
+            "other_domain_formats": []
+        })
+
+        response = self.zero_bounce_client.guess_format(
+            "invalid.com", "John", "", "Doe"
+        )
+        self.assertEqual(response.domain, "invalid.com")
+        self.assertEqual(response.confidence, ZBConfidence.undetermined)
+        self.assertEqual(response.other_domain_formats, [])
+
+    def test_guess_format_status_valid(self):
+        self.requests_mock.get.return_value = MockResponse({
+            "email": "john.doe@example.com",
+            "domain": "example.com",
+            "format": "first.last",
+            "status": "valid",
+            "sub_status": "",
+            "confidence": "high",
+            "did_you_mean": "",
+            "failure_reason": "",
+            "other_domain_formats": [
+                {
+                    "format": "first_last",
+                    "confidence": "high"
+                },
+                {
+                    "format": "first",
+                    "confidence": "medium"
+                }
+            ]
+        })
+
+        response = self.zero_bounce_client.guess_format(
+            "example.com", "John", "", "Doe"
+        )
+        self.assertEqual(response.email, "john.doe@example.com")
+        self.assertEqual(response.status, ZBValidateStatus.valid)
+        self.assertEqual(response.sub_status, ZBValidateSubStatus.none)
+        self.assertEqual(response.confidence, ZBConfidence.high)
+        self.assertEqual(len(response.other_domain_formats), 2)
+        self.assertEqual(response.other_domain_formats[0].format, "first_last")
+        self.assertEqual(response.other_domain_formats[0].confidence, ZBConfidence.high)
+        self.assertEqual(response.other_domain_formats[1].format, "first")
+        self.assertEqual(response.other_domain_formats[1].confidence, ZBConfidence.medium)

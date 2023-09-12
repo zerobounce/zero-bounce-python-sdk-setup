@@ -1,3 +1,4 @@
+from .zb_confidence import ZBConfidence
 from .zb_exceptions import ZBException, ZBApiException, ZBClientException
 from .zb_get_credits_response import ZBGetCreditsResponse
 from .zb_get_api_usage_response import ZBGetApiUsageResponse
@@ -11,5 +12,6 @@ from .zb_send_file_response import ZBSendFileResponse
 from .zb_file_status_response import ZBFileStatusResponse
 from .zb_get_file_response import ZBGetFileResponse
 from .zb_delete_file_response import ZBDeleteFileResponse
+from .zb_guess_format_response import ZBGuessFormatResponse
 
 from .zerobouncesdk import ZeroBounce
