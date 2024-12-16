@@ -33,7 +33,7 @@ class ZeroBounce:
             raise ZBClientException("Empty parameter: api_key")
         self._api_key = api_key
 
-    def _request(self, url, response_class, params=None):
+    def _get(self, url, response_class, params=None):
         if not params:
             params = {}
         params["api_key"] = self._api_key
@@ -47,6 +47,15 @@ class ZeroBounce:
         error = json_response.pop("error", None)
         if error:
             raise ZBApiException(error)
+        return response_class(json_response)
+
+    def _post(self, url, response_class, data=None, json=None, files=None):
+        response = requests.post(url, data=data, json=json, files=files)
+        try:
+            json_response = response.json()
+        except ValueError as e:
+            raise ZBApiException('Request not processed succesfully. Status code %s' % response.status_code)
+
         return response_class(json_response)
 
     def get_credits(self):
@@ -63,7 +72,7 @@ class ZeroBounce:
             Returns a ZBGetCreditsResponse object if the request was successful
         """
 
-        return self._request(f"{self.BASE_URL}/getcredits", ZBGetCreditsResponse)
+        return self._get(f"{self.BASE_URL}/getcredits", ZBGetCreditsResponse)
 
     def get_api_usage(self, start_date: date, end_date: date):
         """Returns the API usage between the given dates.
@@ -85,7 +94,7 @@ class ZeroBounce:
             Returns a ZBGetApiUsageResponse object if the request was successful
         """
 
-        return self._request(
+        return self._get(
             f"{self.BASE_URL}/getapiusage",
             ZBGetApiUsageResponse,
             params={
@@ -112,7 +121,7 @@ class ZeroBounce:
             Returns a ZBGetActivityResponse object if the request was successful
         """
 
-        return self._request(
+        return self._get(
             f"{self.BASE_URL}/activity", ZBGetActivityResponse, params={"email": email}
         )
 
@@ -136,7 +145,7 @@ class ZeroBounce:
             Returns a ZBValidateResponse object if the request was successful
         """
 
-        return self._request(
+        return self._get(
             f"{self.BASE_URL}/validate",
             ZBValidateResponse,
             params={
@@ -166,21 +175,16 @@ class ZeroBounce:
         if not email_batch:
             raise ZBClientException("Empty parameter: email_batch")
 
-        response = requests.post(
+        json={
+            "api_key": self._api_key,
+            "email_batch": [
+                batch_element.to_json() for batch_element in email_batch
+            ],
+        }
+        return self._post(
             f"{self.BULK_BASE_URL}/validatebatch",
-            json={
-                "api_key": self._api_key,
-                "email_batch": [
-                    batch_element.to_json() for batch_element in email_batch
-                ],
-            },
-        )
-        json_response = response.json()
-        try:
-            return ZBValidateBatchResponse(json_response)
-        except KeyError:
-            error = list(json_response.values())[0]
-            raise ZBApiException(error)
+            ZBValidateBatchResponse,
+            json=json)
 
     def _send_file(
         self,
@@ -195,19 +199,10 @@ class ZeroBounce:
                 "email_address_column": email_address_column,
             }
         )
-
+        url = f"{self.SCORING_BASE_URL if scoring else self.BULK_BASE_URL}/sendfile"
         with open(file_path, "rb") as file:
-            response = requests.post(
-                f"{self.SCORING_BASE_URL if scoring else self.BULK_BASE_URL}/sendfile",
-                data=data,
-                files={"file": (os.path.basename(file_path), file, "text/csv")},
-            )
-        try:
-            json_response = response.json()
-        except ValueError as e:
-            raise ZBApiException from e
-
-        return ZBSendFileResponse(json_response)
+            files = {"file": (os.path.basename(file_path), file, "text/csv")}
+            return self._post(url, ZBSendFileResponse, data=data, files=files)
 
     def send_file(
         self,
@@ -318,7 +313,7 @@ class ZeroBounce:
     def _file_status(self, scoring: bool, file_id: str):
         if not file_id.strip():
             raise ZBClientException("Empty parameter: file_id")
-        return self._request(
+        return self._get(
             f"{self.SCORING_BASE_URL if scoring else self.BULK_BASE_URL}/filestatus",
             ZBFileStatusResponse,
             params={"file_id": file_id},
@@ -433,7 +428,7 @@ class ZeroBounce:
     def _delete_file(self, scoring: bool, file_id: str):
         if not file_id.strip():
             raise ZBClientException("Empty parameter: file_id")
-        return self._request(
+        return self._get(
             f"{self.SCORING_BASE_URL if scoring else self.BULK_BASE_URL}/deletefile",
             ZBDeleteFileResponse,
             params={"file_id": file_id},
@@ -521,7 +516,7 @@ class ZeroBounce:
         if last_name:
             params["last_name"] = last_name
 
-        return self._request(
+        return self._get(
             f"{self.BASE_URL}/guessformat",
             ZBGuessFormatResponse,
             params,
