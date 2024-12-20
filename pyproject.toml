@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "zerobouncesdk"
-version = "1.1.0"
+version = "1.1.1"
 description = "ZeroBounce Python API - https://www.zerobounce.net."
 readme = "README.md"
 authors = [{ name = "ZeroBounce", email = "support@zerobounce.net" }]
