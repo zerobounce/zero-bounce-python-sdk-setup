@@ -32,3 +32,4 @@ class ZBValidateSubStatus(Enum):
     mx_forward = "mx_forward"
     blocked = "blocked"
     allowed = "allowed"
+    accept_all = "accept_all"
