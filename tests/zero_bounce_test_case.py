@@ -95,6 +95,17 @@ class ZeroBounceTestCase(BaseTestCase):
         self.assertEqual(response.status, ZBValidateStatus.catch_all)
         self.assertEqual(response.sub_status, ZBValidateSubStatus.accept_all)
 
+    def test_response_sub_status_role_based_accept_all(self):
+        self.requests_mock.get.return_value = MockResponse({
+            "address": "none@example.com",
+            "status": "valid",
+            "sub_status": "role_based_accept_all",
+        })
+        response = self.zero_bounce_client.validate("none@example.com")
+        self.assertEqual(response.address, "none@example.com")
+        self.assertEqual(response.status, ZBValidateStatus.valid)
+        self.assertEqual(response.sub_status, ZBValidateSubStatus.role_based_accept_all)
+
     def test_response_contains_errors(self):
         self.requests_mock.post.return_value = MockResponse({
             "email_batch": [],
