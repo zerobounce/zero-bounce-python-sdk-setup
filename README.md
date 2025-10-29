@@ -538,5 +538,8 @@ OK
 
 ### Publish
 ```bash
-
+. venv/bin/activate
+pip install build twine
+vi pyproject.toml # update version
+python -m build
 ```
