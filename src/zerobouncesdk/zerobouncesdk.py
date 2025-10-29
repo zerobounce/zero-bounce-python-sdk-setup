@@ -1,3 +1,4 @@
+import warnings
 from datetime import date
 import os
 from typing import List
@@ -488,6 +489,10 @@ class ZeroBounce:
         """Identifies and validates a person's primary email address.
         When no "name" fields are given, function makes a `domain search`.
 
+        .. deprecated:: 
+            This method is deprecated and will be removed in future versions.
+            Use find_email_format or find_domain instead.
+
         Parameters
         ----------
         domain: str
@@ -508,6 +513,12 @@ class ZeroBounce:
         response: ZBGuessFormatResponse
             Returns a ZBGuessFormatResponse object if the request was successful
         """
+        warnings.warn(
+            "guess_format is deprecated and will be removed in future versions. "
+            "Use find_email_format or find_domain instead.",
+            DeprecationWarning,
+            stacklevel=2
+        )
         params = {"domain": domain}
         if first_name:
             params["first_name"] = first_name
