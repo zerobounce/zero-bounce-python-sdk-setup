@@ -325,3 +325,162 @@ class ZeroBounceTestCase(BaseTestCase):
         self.assertEqual(response.other_domain_formats[0].confidence, ZBConfidence.high)
         self.assertEqual(response.other_domain_formats[1].format, "first")
         self.assertEqual(response.other_domain_formats[1].confidence, ZBConfidence.medium)
+
+    def test_find_email_format_with_domain(self):
+        self.requests_mock.get.return_value = MockResponse({
+            "email": "john.doe@example.com",
+            "email_confidence": "high",
+            "domain": "example.com",
+            "company_name": "",
+            "did_you_mean": "",
+            "failure_reason": "",
+        })
+
+        response = self.zero_bounce_client.find_email_format(
+            first_name="John",
+            domain="example.com",
+            last_name="Doe"
+        )
+        self.assertEqual(response.email, "john.doe@example.com")
+        self.assertEqual(response.email_confidence, ZBConfidence.high)
+        self.assertEqual(response.domain, "example.com")
+        self.assertEqual(response.company_name, "")
+
+    def test_find_email_format_with_company_name(self):
+        self.requests_mock.get.return_value = MockResponse({
+            "email": "jane@acmestores.com",
+            "email_confidence": "low",
+            "domain": "acmestores.com",
+            "company_name": "Acme Corp",
+            "did_you_mean": "",
+            "failure_reason": "",
+        })
+
+        response = self.zero_bounce_client.find_email_format(
+            first_name="Jane",
+            company_name="Acme Corp"
+        )
+        self.assertEqual(response.email, "jane@acmestores.com")
+        self.assertEqual(response.email_confidence, ZBConfidence.low)
+        self.assertEqual(response.domain, "acmestores.com")
+        self.assertEqual(response.company_name, "Acme Corp")
+
+    def test_find_email_format_both_domain_and_company_name(self):
+        with self.assertRaises(ZBClientException) as cm:
+            self.zero_bounce_client.find_email_format(
+                first_name="John",
+                domain="example.com",
+                company_name="Acme Corp"
+            )
+        expected_error = "Parameter error: domain and company_name cannot be used together"
+        self.assertEqual(str(cm.exception), expected_error)
+
+    def test_find_email_format_neither_domain_nor_company_name(self):
+        with self.assertRaises(ZBClientException) as cm:
+            self.zero_bounce_client.find_email_format(
+                first_name="John"
+            )
+        expected_error = "Empty parameter: domain or company_name required"
+        self.assertEqual(str(cm.exception), expected_error)
+
+    def test_find_email_format_email_confidence_enum_conversion(self):
+        self.requests_mock.get.return_value = MockResponse({
+            "email": "test@example.com",
+            "email_confidence": "medium",
+            "domain": "example.com",
+            "company_name": "",
+            "did_you_mean": "",
+            "failure_reason": "",
+        })
+
+        response = self.zero_bounce_client.find_email_format(
+            first_name="Test",
+            domain="example.com"
+        )
+        self.assertIsInstance(response.email_confidence, ZBConfidence)
+        self.assertEqual(response.email_confidence, ZBConfidence.medium)
+
+    def test_find_domain_with_domain(self):
+        self.requests_mock.get.return_value = MockResponse({
+            "domain": "example.com",
+            "company_name": "",
+            "format": "unknown",
+            "confidence": "undetermined",
+            "did_you_mean": "",
+            "failure_reason": "",
+            "other_domain_formats": []
+        })
+
+        response = self.zero_bounce_client.find_domain(domain="example.com")
+        self.assertEqual(response.domain, "example.com")
+        self.assertEqual(response.company_name, "")
+        self.assertEqual(response.format, "unknown")
+        self.assertEqual(response.confidence, ZBConfidence.undetermined)
+        self.assertEqual(response.other_domain_formats, [])
+
+    def test_find_domain_with_company_name(self):
+        self.requests_mock.get.return_value = MockResponse({
+            "domain": "acmestores.com",
+            "company_name": "Acme Corp",
+            "format": "first_last",
+            "confidence": "high",
+            "did_you_mean": "",
+            "failure_reason": "",
+            "other_domain_formats": [
+                {
+                    "format": "firstlast",
+                    "confidence": "medium"
+                },
+                {
+                    "format": "first.last",
+                    "confidence": "medium"
+                },
+                {
+                    "format": "first",
+                    "confidence": "low"
+                }
+            ]
+        })
+
+        response = self.zero_bounce_client.find_domain(company_name="Acme Corp")
+        self.assertEqual(response.domain, "acmestores.com")
+        self.assertEqual(response.company_name, "Acme Corp")
+        self.assertEqual(response.format, "first_last")
+        self.assertEqual(response.confidence, ZBConfidence.high)
+        self.assertEqual(len(response.other_domain_formats), 3)
+        self.assertEqual(response.other_domain_formats[0].format, "firstlast")
+        self.assertEqual(response.other_domain_formats[0].confidence, ZBConfidence.medium)
+        self.assertEqual(response.other_domain_formats[1].format, "first.last")
+        self.assertEqual(response.other_domain_formats[1].confidence, ZBConfidence.medium)
+        self.assertEqual(response.other_domain_formats[2].format, "first")
+        self.assertEqual(response.other_domain_formats[2].confidence, ZBConfidence.low)
+
+    def test_find_domain_both_domain_and_company_name(self):
+        with self.assertRaises(ZBClientException) as cm:
+            self.zero_bounce_client.find_domain(
+                domain="example.com",
+                company_name="Acme Corp"
+            )
+        expected_error = "Parameter error: domain and company_name cannot be used together"
+        self.assertEqual(str(cm.exception), expected_error)
+
+    def test_find_domain_neither_domain_nor_company_name(self):
+        with self.assertRaises(ZBClientException) as cm:
+            self.zero_bounce_client.find_domain()
+        expected_error = "Empty parameter: domain xor company_name required"
+        self.assertEqual(str(cm.exception), expected_error)
+
+    def test_find_domain_confidence_enum_conversion(self):
+        self.requests_mock.get.return_value = MockResponse({
+            "domain": "example.com",
+            "company_name": "",
+            "format": "first.last",
+            "confidence": "high",
+            "did_you_mean": "",
+            "failure_reason": "",
+            "other_domain_formats": []
+        })
+
+        response = self.zero_bounce_client.find_domain(domain="example.com")
+        self.assertIsInstance(response.confidence, ZBConfidence)
+        self.assertEqual(response.confidence, ZBConfidence.high)
