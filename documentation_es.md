@@ -10,11 +10,38 @@ Importa el SDK en tu archivo:
 from zerobouncesdk import ZeroBounce
 ```
 
-Inicializa el SDK con tu clave de API:
+Inicializa el SDK con tu clave de API. Puedes opcionalmente especificar una URL base para usar una región de API diferente o un endpoint personalizado:
 
+**Por defecto**: Usa el endpoint predeterminado de ZeroBounce API
 ```python
+from zerobouncesdk import ZeroBounce
+
 zero_bounce = ZeroBounce("<TU_CLAVE_DE_API>")
 ```
+
+**Usando regiones de API predefinidas**: Usa una de las regiones de API disponibles
+```python
+from zerobouncesdk import ZeroBounce, ZBApiUrl
+
+# Usar región USA
+zero_bounce = ZeroBounce("<TU_CLAVE_DE_API>", base_url=ZBApiUrl.API_USA_URL)
+
+# Usar región EU
+zero_bounce = ZeroBounce("<TU_CLAVE_DE_API>", base_url=ZBApiUrl.API_EU_URL)
+
+# Usar región predeterminada (explícita)
+zero_bounce = ZeroBounce("<TU_CLAVE_DE_API>", base_url=ZBApiUrl.API_DEFAULT_URL)
+```
+
+**Usando una URL personalizada**: Proporciona tu propia URL base
+```python
+zero_bounce = ZeroBounce("<TU_CLAVE_DE_API>", base_url="https://custom-api.example.com/v2")
+```
+
+**Regiones de API disponibles:**
+- `ZBApiUrl.API_DEFAULT_URL` - API predeterminada de ZeroBounce (https://api.zerobounce.net/v2/)
+- `ZBApiUrl.API_USA_URL` - API de región USA (https://api-us.zerobounce.net/v2/)
+- `ZBApiUrl.API_EU_URL` - API de región EU (https://api-eu.zerobounce.net/v2/)
 
 #### Ejemplos
 Luego puedes utilizar cualquiera de los métodos del SDK, por ejemplo:
