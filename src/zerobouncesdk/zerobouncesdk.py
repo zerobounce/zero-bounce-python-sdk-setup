@@ -533,3 +533,49 @@ class ZeroBounce:
             params,
         )
 
+
+    def find_email_format(
+        self, 
+        first_name: str, 
+        domain: str = '', 
+        company_name: str = '',
+        middle_name: str = '', 
+        last_name: str = ''
+    ):
+        if not domain and not company_name:
+            raise ZBClientException("Empty parameter: domain or company_name required")
+        if domain and company_name:
+            raise ZBClientException("Parameter error: domain and company_name cannot be used together")
+        params = {"first_name": first_name}
+        if domain:
+            params["domain"] = domain
+        if company_name:
+            params["company_name"] = company_name
+        if middle_name:
+            params["middle_name"] = middle_name
+        if last_name:
+            params["last_name"] = last_name
+
+        return self._get(
+            f"{self.BASE_URL}/guessformat",
+            ZBFindEmailFormatResponse,
+            params)
+
+    def find_domain(
+        self,
+        domain: str = '',
+        company_name: str = ''
+    ):
+        if not domain and not company_name:
+            raise ZBClientException("Empty parameter: domain xor company_name required")
+        if domain and company_name:
+            raise ZBClientException("Parameter error: domain and company_name cannot be used together")
+        params = {}
+        if domain:
+            params["domain"] = domain
+        if company_name:
+            params["company_name"] = company_name
+        return self._get(
+            f"{self.BASE_URL}/guessformat",
+            ZBFindDomainResponse,
+            params)
