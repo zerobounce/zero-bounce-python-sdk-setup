@@ -1,3 +1,4 @@
+from .zb_api_url import ZBApiUrl
 from .zb_confidence import ZBConfidence
 from .zb_exceptions import ZBException, ZBApiException, ZBClientException
 from .zb_get_credits_response import ZBGetCreditsResponse
