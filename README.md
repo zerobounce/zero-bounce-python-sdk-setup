@@ -273,3 +273,52 @@ try:
 except ZBException as e:
     print("ZeroBounce delete_file error: " + str(e))
 ```
+
+## DEVELOPMENT
+
+### Local setup
+```bash
+python -m venv venv # python 3.12+
+source venv/bin/activate
+pip install -e .
+```
+
+### Run tests
+```bash
+python -m tests -v
+
+# output:
+test_activity_valid (tests.zero_bounce_test_case.ZeroBounceTestCase.test_activity_valid) ... ok
+test_api_usage_valid (tests.zero_bounce_test_case.ZeroBounceTestCase.test_api_usage_valid) ... ok
+test_blank_file_id (tests.zero_bounce_test_case.ZeroBounceTestCase.test_blank_file_id) ... ok
+test_credits_invalid_key (tests.zero_bounce_test_case.ZeroBounceTestCase.test_credits_invalid_key) ... ok
+test_credits_valid (tests.zero_bounce_test_case.ZeroBounceTestCase.test_credits_valid) ... ok
+test_delete_file_valid (tests.zero_bounce_test_case.ZeroBounceTestCase.test_delete_file_valid) ... ok
+test_file_status_valid (tests.zero_bounce_test_case.ZeroBounceTestCase.test_file_status_valid) ... ok
+test_get_file_valid (tests.zero_bounce_test_case.ZeroBounceTestCase.test_get_file_valid) ... ok
+test_guess_format_status_invalid (tests.zero_bounce_test_case.ZeroBounceTestCase.test_guess_format_status_invalid) ... ok
+test_guess_format_status_valid (tests.zero_bounce_test_case.ZeroBounceTestCase.test_guess_format_status_valid) ... ok
+test_init_blank_key (tests.zero_bounce_test_case.ZeroBounceTestCase.test_init_blank_key) ... ok
+test_invalid_file_path (tests.zero_bounce_test_case.ZeroBounceTestCase.test_invalid_file_path) ... ok
+test_response_contains_error (tests.zero_bounce_test_case.ZeroBounceTestCase.test_response_contains_error) ... ok
+test_response_contains_errors (tests.zero_bounce_test_case.ZeroBounceTestCase.test_response_contains_errors) ... ok
+test_response_contains_message (tests.zero_bounce_test_case.ZeroBounceTestCase.test_response_contains_message) ... ok
+test_response_contains_message_list (tests.zero_bounce_test_case.ZeroBounceTestCase.test_response_contains_message_list) ... ok
+test_response_sub_status_accept_all (tests.zero_bounce_test_case.ZeroBounceTestCase.test_response_sub_status_accept_all) ... ok
+test_response_sub_status_role_based_accept_all (tests.zero_bounce_test_case.ZeroBounceTestCase.test_response_sub_status_role_based_accept_all) ... ok
+test_send_file_valid (tests.zero_bounce_test_case.ZeroBounceTestCase.test_send_file_valid) ... ok
+test_validate_batch_blank_email (tests.zero_bounce_test_case.ZeroBounceTestCase.test_validate_batch_blank_email) ... ok
+test_validate_batch_no_emails (tests.zero_bounce_test_case.ZeroBounceTestCase.test_validate_batch_no_emails) ... ok
+test_validate_batch_valid (tests.zero_bounce_test_case.ZeroBounceTestCase.test_validate_batch_valid) ... ok
+test_validate_valid (tests.zero_bounce_test_case.ZeroBounceTestCase.test_validate_valid) ... ok
+
+----------------------------------------------------------------------
+Ran 23 tests in 0.007s
+
+OK
+```
+
+### Publish
+```bash
+
+```
