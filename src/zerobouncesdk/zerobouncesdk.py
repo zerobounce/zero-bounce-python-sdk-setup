@@ -1,11 +1,13 @@
+import warnings
 from datetime import date
 import os
-from typing import List
+from typing import List, Optional, Union
 
 import requests
 
 from . import (
     ZBApiException,
+    ZBApiUrl,
     ZBClientException,
     ZBGetCreditsResponse,
     ZBGetApiUsageResponse,
@@ -18,20 +20,49 @@ from . import (
     ZBGetFileResponse,
     ZBDeleteFileResponse,
     ZBGuessFormatResponse,
+    ZBFindEmailFormatResponse,
+    ZBFindDomainResponse,
 )
 
 
 class ZeroBounce:
     """The ZeroBounce main class. All the requests are implemented here."""
 
-    BASE_URL = "https://api.zerobounce.net/v2"
     BULK_BASE_URL = "https://bulkapi.zerobounce.net/v2"
     SCORING_BASE_URL = "https://bulkapi.zerobounce.net/v2/scoring"
 
-    def __init__(self, api_key: str):
+    def __init__(self, api_key: str, base_url: Optional[Union[ZBApiUrl, str]] = None):
+        """Initialize the ZeroBounce client.
+
+        Parameters
+        ----------
+        api_key: str
+            Your ZeroBounce API key
+        base_url: Optional[Union[ZBApiUrl, str]], default ZBApiUrl.API_DEFAULT_URL
+            The base URL for the API. Can be a ZBApiUrl enum value, a custom URL string,
+            or None to use the default URL.
+
+        Raises
+        ------
+        ZBClientException
+            If api_key is empty
+        """
         if not api_key.strip():
             raise ZBClientException("Empty parameter: api_key")
         self._api_key = api_key
+        
+        # Handle base_url: enum, string, or default
+        if base_url is None:
+            self._base_url = ZBApiUrl.API_DEFAULT_URL.value
+        elif isinstance(base_url, ZBApiUrl):
+            self._base_url = base_url.value
+        elif isinstance(base_url, str):
+            self._base_url = base_url
+        else:
+            raise ZBClientException(f"Invalid base_url type: {type(base_url)}. Expected ZBApiUrl, str, or None.")
+        
+        # Remove trailing slash if present to maintain consistent URL construction
+        self._base_url = self._base_url.rstrip('/')
 
     def _get(self, url, response_class, params=None):
         if not params:
@@ -72,7 +103,7 @@ class ZeroBounce:
             Returns a ZBGetCreditsResponse object if the request was successful
         """
 
-        return self._get(f"{self.BASE_URL}/getcredits", ZBGetCreditsResponse)
+        return self._get(f"{self._base_url}/getcredits", ZBGetCreditsResponse)
 
     def get_api_usage(self, start_date: date, end_date: date):
         """Returns the API usage between the given dates.
@@ -95,7 +126,7 @@ class ZeroBounce:
         """
 
         return self._get(
-            f"{self.BASE_URL}/getapiusage",
+            f"{self._base_url}/getapiusage",
             ZBGetApiUsageResponse,
             params={
                 "start_date": start_date.strftime("%Y-%m-%d"),
@@ -122,7 +153,7 @@ class ZeroBounce:
         """
 
         return self._get(
-            f"{self.BASE_URL}/activity", ZBGetActivityResponse, params={"email": email}
+            f"{self._base_url}/activity", ZBGetActivityResponse, params={"email": email}
         )
 
     def validate(self, email: str, ip_address: str = None):
@@ -146,7 +177,7 @@ class ZeroBounce:
         """
 
         return self._get(
-            f"{self.BASE_URL}/validate",
+            f"{self._base_url}/validate",
             ZBValidateResponse,
             params={
                 "email": email,
@@ -488,6 +519,10 @@ class ZeroBounce:
         """Identifies and validates a person's primary email address.
         When no "name" fields are given, function makes a `domain search`.
 
+        .. deprecated:: 
+            This method is deprecated and will be removed in future versions.
+            Use find_email_format or find_domain instead.
+
         Parameters
         ----------
         domain: str
@@ -508,6 +543,12 @@ class ZeroBounce:
         response: ZBGuessFormatResponse
             Returns a ZBGuessFormatResponse object if the request was successful
         """
+        warnings.warn(
+            "guess_format is deprecated and will be removed in future versions. "
+            "Use find_email_format or find_domain instead.",
+            DeprecationWarning,
+            stacklevel=2
+        )
         params = {"domain": domain}
         if first_name:
             params["first_name"] = first_name
@@ -517,8 +558,54 @@ class ZeroBounce:
             params["last_name"] = last_name
 
         return self._get(
-            f"{self.BASE_URL}/guessformat",
+            f"{self._base_url}/guessformat",
             ZBGuessFormatResponse,
             params,
         )
 
+
+    def find_email_format(
+        self, 
+        first_name: str, 
+        domain: str = '', 
+        company_name: str = '',
+        middle_name: str = '', 
+        last_name: str = ''
+    ):
+        if not domain and not company_name:
+            raise ZBClientException("Empty parameter: domain or company_name required")
+        if domain and company_name:
+            raise ZBClientException("Parameter error: domain and company_name cannot be used together")
+        params = {"first_name": first_name}
+        if domain:
+            params["domain"] = domain
+        if company_name:
+            params["company_name"] = company_name
+        if middle_name:
+            params["middle_name"] = middle_name
+        if last_name:
+            params["last_name"] = last_name
+
+        return self._get(
+            f"{self._base_url}/guessformat",
+            ZBFindEmailFormatResponse,
+            params)
+
+    def find_domain(
+        self,
+        domain: str = '',
+        company_name: str = ''
+    ):
+        if not domain and not company_name:
+            raise ZBClientException("Empty parameter: domain xor company_name required")
+        if domain and company_name:
+            raise ZBClientException("Parameter error: domain and company_name cannot be used together")
+        params = {}
+        if domain:
+            params["domain"] = domain
+        if company_name:
+            params["company_name"] = company_name
+        return self._get(
+            f"{self._base_url}/guessformat",
+            ZBFindDomainResponse,
+            params)

@@ -14,11 +14,38 @@ Import the sdk in your file:
 from zerobouncesdk import ZeroBounce
 ```
 
-Initialize the sdk with your api key:
+Initialize the SDK with your API key. You can optionally specify a base URL to use a different API region or a custom endpoint:
 
+**Default**: Uses the default ZeroBounce API endpoint
 ```python
+from zerobouncesdk import ZeroBounce
+
 zero_bounce = ZeroBounce("<YOUR_API_KEY>")
 ```
+
+**Using predefined API regions**: Use one of the available API regions
+```python
+from zerobouncesdk import ZeroBounce, ZBApiUrl
+
+# Use USA region
+zero_bounce = ZeroBounce("<YOUR_API_KEY>", base_url=ZBApiUrl.API_USA_URL)
+
+# Use EU region
+zero_bounce = ZeroBounce("<YOUR_API_KEY>", base_url=ZBApiUrl.API_EU_URL)
+
+# Use default region (explicit)
+zero_bounce = ZeroBounce("<YOUR_API_KEY>", base_url=ZBApiUrl.API_DEFAULT_URL)
+```
+
+**Using a custom URL string**: Provide your own base URL
+```python
+zero_bounce = ZeroBounce("<YOUR_API_KEY>", base_url="https://custom-api.example.com/v2")
+```
+
+**Available API regions:**
+- `ZBApiUrl.API_DEFAULT_URL` - Default ZeroBounce API (https://api.zerobounce.net/v2/)
+- `ZBApiUrl.API_USA_URL` - USA region API (https://api-us.zerobounce.net/v2/)
+- `ZBApiUrl.API_EU_URL` - EU region API (https://api-eu.zerobounce.net/v2/)
 
 ## Examples
 Then you can use any of the SDK methods, for example:
@@ -65,23 +92,89 @@ except ZBException as e:
     print("ZeroBounce get_activity error: " + str(e))
 ```
 
-* ##### Identify the correct email format when you provide a name and email domain
+* ##### Find the correct email format when you provide a name and email domain or company name
 
 ```python
 from zerobouncesdk import ZeroBounce, ZBException
 
 zero_bounce = ZeroBounce("<YOUR_API_KEY>")
 
-domain = "example.com" # The email domain for which to find the email format
-first_name = "John" # The first name of the person whose email format is being searched
-middle_name = "Quill" # The middle name of the person whose email format is being searched
-last_name = "Doe" # The last name of the person whose email format is being searched
+# Option 1: Use find_email_format with domain
+domain = "example.com"  # The email domain for which to find the email format
+first_name = "John"      # The first name of the person whose email format is being searched
+middle_name = "Quill"    # Optional: The middle name of the person
+last_name = "Doe"        # Optional: The last name of the person
 
 try:
-    response = zero_bounce.guess_format(domain, first_name, middle_name, last_name)
-    print("ZeroBounce guess format response: " + response)
+    response = zero_bounce.find_email_format(
+        first_name=first_name,
+        domain=domain,
+        middle_name=middle_name,
+        last_name=last_name
+    )
+    print("Email: " + str(response.email))
+    print("Email Confidence: " + str(response.email_confidence))
 except ZBException as e:
-    print("ZeroBounce guess format error: " + str(e))
+    print("ZeroBounce find_email_format error: " + str(e))
+```
+
+```python
+# Option 2: Use find_email_format with company_name
+from zerobouncesdk import ZeroBounce, ZBException
+
+zero_bounce = ZeroBounce("<YOUR_API_KEY>")
+
+company_name = "Acme Corp"  # The company name for which to find the email format
+first_name = "Jane"          # The first name of the person
+
+try:
+    response = zero_bounce.find_email_format(
+        first_name=first_name,
+        company_name=company_name
+    )
+    print("Email: " + str(response.email))
+    print("Domain: " + str(response.domain))
+    print("Company: " + str(response.company_name))
+except ZBException as e:
+    print("ZeroBounce find_email_format error: " + str(e))
+```
+
+```python
+# Option 3: Use find_domain to discover email formats for a domain
+from zerobouncesdk import ZeroBounce, ZBException
+
+zero_bounce = ZeroBounce("<YOUR_API_KEY>")
+
+domain = "example.com"  # The email domain to analyze
+
+try:
+    response = zero_bounce.find_domain(domain=domain)
+    print("Domain: " + str(response.domain))
+    print("Format: " + str(response.format))
+    print("Confidence: " + str(response.confidence))
+    print("Other formats: " + str(len(response.other_domain_formats)))
+except ZBException as e:
+    print("ZeroBounce find_domain error: " + str(e))
+```
+
+```python
+# Option 4: Use find_domain with company_name
+from zerobouncesdk import ZeroBounce, ZBException
+
+zero_bounce = ZeroBounce("<YOUR_API_KEY>")
+
+company_name = "Acme Corp"  # The company name to analyze
+
+try:
+    response = zero_bounce.find_domain(company_name=company_name)
+    print("Domain: " + str(response.domain))
+    print("Company: " + str(response.company_name))
+    print("Format: " + str(response.format))
+    print("Confidence: " + str(response.confidence))
+    for fmt in response.other_domain_formats:
+        print(f"  Alternative: {fmt.format} (confidence: {fmt.confidence})")
+except ZBException as e:
+    print("ZeroBounce find_domain error: " + str(e))
 ```
 
 * ##### Validate an email address
@@ -272,4 +365,181 @@ try:
     print("ZeroBounce delete_file response: " + str(response))
 except ZBException as e:
     print("ZeroBounce delete_file error: " + str(e))
+```
+
+* ##### (Deprecated) Identify the correct email format when you provide a name and email domain
+
+> **⚠️ Deprecated:** The `guess_format` method is deprecated and will be removed in future versions. Use `find_email_format` or `find_domain` instead (see examples above).
+
+```python
+from zerobouncesdk import ZeroBounce, ZBException
+
+zero_bounce = ZeroBounce("<YOUR_API_KEY>")
+
+domain = "example.com" # The email domain for which to find the email format
+first_name = "John" # The first name of the person whose email format is being searched
+middle_name = "Quill" # The middle name of the person whose email format is being searched
+last_name = "Doe" # The last name of the person whose email format is being searched
+
+try:
+    response = zero_bounce.guess_format(domain, first_name, middle_name, last_name)
+    print("ZeroBounce guess format response: " + response)
+except ZBException as e:
+    print("ZeroBounce guess format error: " + str(e))
+```
+
+## DEVELOPMENT
+
+### Local setup
+```bash
+python -m venv venv # python 3.12+
+source venv/bin/activate
+pip install -e .
+```
+
+### Run tests
+```bash
+python -m tests -v
+
+# output:
+python -m tests -v 
+test_api_regions (tests.zero_bounce_integration_test.ZeroBounceIntegrationTestCase.test_api_regions)
+Test that different API regions work. ... skipped 'ZEROBOUNCE_API_KEY environment variable not set'
+test_error_handling_invalid_key (tests.zero_bounce_integration_test.ZeroBounceIntegrationTestCase.test_error_handling_invalid_key)
+Test error handling with invalid API key. ... skipped 'ZEROBOUNCE_API_KEY environment variable not set'
+test_find_domain_with_domain (tests.zero_bounce_integration_test.ZeroBounceIntegrationTestCase.test_find_domain_with_domain)
+Test find_domain with domain parameter. ... skipped 'ZEROBOUNCE_API_KEY environment variable not set'
+test_find_email_format_with_domain (tests.zero_bounce_integration_test.ZeroBounceIntegrationTestCase.test_find_email_format_with_domain)
+Test find_email_format with domain parameter. ... skipped 'ZEROBOUNCE_API_KEY environment variable not set'
+test_get_credits (tests.zero_bounce_integration_test.ZeroBounceIntegrationTestCase.test_get_credits)
+Test getting credits from the API. ... skipped 'ZEROBOUNCE_API_KEY environment variable not set'
+test_init_blank_key (tests.zero_bounce_integration_test.ZeroBounceIntegrationTestCase.test_init_blank_key)
+Test that blank API key raises exception. ... skipped 'ZEROBOUNCE_API_KEY environment variable not set'
+test_init_invalid_base_url_type (tests.zero_bounce_integration_test.ZeroBounceIntegrationTestCase.test_init_invalid_base_url_type)
+Test that invalid base_url type raises exception. ... skipped 'ZEROBOUNCE_API_KEY environment variable not set'
+test_init_with_custom_base_url_string (tests.zero_bounce_integration_test.ZeroBounceIntegrationTestCase.test_init_with_custom_base_url_string)
+Test initializing with a custom base URL string. ... skipped 'ZEROBOUNCE_API_KEY environment variable not set'
+test_init_with_enum_base_url (tests.zero_bounce_integration_test.ZeroBounceIntegrationTestCase.test_init_with_enum_base_url)
+Test initializing with enum base URL. ... skipped 'ZEROBOUNCE_API_KEY environment variable not set'
+test_validate_email (tests.zero_bounce_integration_test.ZeroBounceIntegrationTestCase.test_validate_email)
+Test validating an email address. ... skipped 'ZEROBOUNCE_API_KEY environment variable not set'
+test_activity_valid (tests.zero_bounce_test_case.ZeroBounceTestCase.test_activity_valid) ... ok
+test_api_usage_valid (tests.zero_bounce_test_case.ZeroBounceTestCase.test_api_usage_valid) ... ok
+test_blank_file_id (tests.zero_bounce_test_case.ZeroBounceTestCase.test_blank_file_id) ... ok
+test_credits_invalid_key (tests.zero_bounce_test_case.ZeroBounceTestCase.test_credits_invalid_key) ... ok
+test_credits_valid (tests.zero_bounce_test_case.ZeroBounceTestCase.test_credits_valid) ... ok
+test_delete_file_valid (tests.zero_bounce_test_case.ZeroBounceTestCase.test_delete_file_valid) ... ok
+test_file_status_valid (tests.zero_bounce_test_case.ZeroBounceTestCase.test_file_status_valid) ... ok
+test_find_domain_both_domain_and_company_name (tests.zero_bounce_test_case.ZeroBounceTestCase.test_find_domain_both_domain_and_company_name) ... ok
+test_find_domain_confidence_enum_conversion (tests.zero_bounce_test_case.ZeroBounceTestCase.test_find_domain_confidence_enum_conversion) ... ok
+test_find_domain_neither_domain_nor_company_name (tests.zero_bounce_test_case.ZeroBounceTestCase.test_find_domain_neither_domain_nor_company_name) ... ok
+test_find_domain_with_company_name (tests.zero_bounce_test_case.ZeroBounceTestCase.test_find_domain_with_company_name) ... ok
+test_find_domain_with_domain (tests.zero_bounce_test_case.ZeroBounceTestCase.test_find_domain_with_domain) ... ok
+test_find_email_format_both_domain_and_company_name (tests.zero_bounce_test_case.ZeroBounceTestCase.test_find_email_format_both_domain_and_company_name) ... ok
+test_find_email_format_email_confidence_enum_conversion (tests.zero_bounce_test_case.ZeroBounceTestCase.test_find_email_format_email_confidence_enum_conversion) ... ok
+test_find_email_format_neither_domain_nor_company_name (tests.zero_bounce_test_case.ZeroBounceTestCase.test_find_email_format_neither_domain_nor_company_name) ... ok
+test_find_email_format_with_company_name (tests.zero_bounce_test_case.ZeroBounceTestCase.test_find_email_format_with_company_name) ... ok
+test_find_email_format_with_domain (tests.zero_bounce_test_case.ZeroBounceTestCase.test_find_email_format_with_domain) ... ok
+test_get_file_valid (tests.zero_bounce_test_case.ZeroBounceTestCase.test_get_file_valid) ... ok
+test_guess_format_status_invalid (tests.zero_bounce_test_case.ZeroBounceTestCase.test_guess_format_status_invalid) ... /home/vlungu/workspace/zerobounce/sdk/python/tests/zero_bounce_test_case.py:287: DeprecationWarning: guess_format is deprecated and will be removed in future versions. Use find_email_format or find_domain instead.
+  response = self.zero_bounce_client.guess_format(
+ok
+test_guess_format_status_valid (tests.zero_bounce_test_case.ZeroBounceTestCase.test_guess_format_status_valid) ... /home/vlungu/workspace/zerobounce/sdk/python/tests/zero_bounce_test_case.py:316: DeprecationWarning: guess_format is deprecated and will be removed in future versions. Use find_email_format or find_domain instead.
+  response = self.zero_bounce_client.guess_format(
+ok
+test_init_blank_key (tests.zero_bounce_test_case.ZeroBounceTestCase.test_init_blank_key) ... ok
+test_invalid_file_path (tests.zero_bounce_test_case.ZeroBounceTestCase.test_invalid_file_path) ... ok
+test_response_contains_error (tests.zero_bounce_test_case.ZeroBounceTestCase.test_response_contains_error) ... ok
+test_response_contains_errors (tests.zero_bounce_test_case.ZeroBounceTestCase.test_response_contains_errors) ... ok
+test_response_contains_message (tests.zero_bounce_test_case.ZeroBounceTestCase.test_response_contains_message) ... ok
+test_response_contains_message_list (tests.zero_bounce_test_case.ZeroBounceTestCase.test_response_contains_message_list) ... ok
+test_response_sub_status_accept_all (tests.zero_bounce_test_case.ZeroBounceTestCase.test_response_sub_status_accept_all) ... ok
+test_response_sub_status_role_based_accept_all (tests.zero_bounce_test_case.ZeroBounceTestCase.test_response_sub_status_role_based_accept_all) ... ok
+test_send_file_valid (tests.zero_bounce_test_case.ZeroBounceTestCase.test_send_file_valid) ... ok
+test_validate_batch_blank_email (tests.zero_bounce_test_case.ZeroBounceTestCase.test_validate_batch_blank_email) ... ok
+test_validate_batch_no_emails (tests.zero_bounce_test_case.ZeroBounceTestCase.test_validate_batch_no_emails) ... ok
+test_validate_batch_valid (tests.zero_bounce_test_case.ZeroBounceTestCase.test_validate_batch_valid) ... ok
+test_validate_valid (tests.zero_bounce_test_case.ZeroBounceTestCase.test_validate_valid) ... ok
+
+----------------------------------------------------------------------
+Ran 43 tests in 0.015s
+
+OK (skipped=10) # integration tests are skipped if no api key is present
+```
+
+```bash
+# to run integration tests export api key into the environment (valid api key required)
+export ZEROBOUNCE_API_KEY=<apikey> && python -m tests -v
+
+# output:
+test_api_regions (tests.zero_bounce_integration_test.ZeroBounceIntegrationTestCase.test_api_regions)
+Test that different API regions work. ... ok
+test_error_handling_invalid_key (tests.zero_bounce_integration_test.ZeroBounceIntegrationTestCase.test_error_handling_invalid_key)
+Test error handling with invalid API key. ... ok
+test_find_domain_with_domain (tests.zero_bounce_integration_test.ZeroBounceIntegrationTestCase.test_find_domain_with_domain)
+Test find_domain with domain parameter. ... ok
+test_find_email_format_with_domain (tests.zero_bounce_integration_test.ZeroBounceIntegrationTestCase.test_find_email_format_with_domain)
+Test find_email_format with domain parameter. ... ok
+test_get_credits (tests.zero_bounce_integration_test.ZeroBounceIntegrationTestCase.test_get_credits)
+Test getting credits from the API. ... ok
+test_init_blank_key (tests.zero_bounce_integration_test.ZeroBounceIntegrationTestCase.test_init_blank_key)
+Test that blank API key raises exception. ... ok
+test_init_invalid_base_url_type (tests.zero_bounce_integration_test.ZeroBounceIntegrationTestCase.test_init_invalid_base_url_type)
+Test that invalid base_url type raises exception. ... ok
+test_init_with_custom_base_url_string (tests.zero_bounce_integration_test.ZeroBounceIntegrationTestCase.test_init_with_custom_base_url_string)
+Test initializing with a custom base URL string. ... ok
+test_init_with_enum_base_url (tests.zero_bounce_integration_test.ZeroBounceIntegrationTestCase.test_init_with_enum_base_url)
+Test initializing with enum base URL. ... ok
+test_validate_email (tests.zero_bounce_integration_test.ZeroBounceIntegrationTestCase.test_validate_email)
+Test validating an email address. ... ok
+test_activity_valid (tests.zero_bounce_test_case.ZeroBounceTestCase.test_activity_valid) ... ok
+test_api_usage_valid (tests.zero_bounce_test_case.ZeroBounceTestCase.test_api_usage_valid) ... ok
+test_blank_file_id (tests.zero_bounce_test_case.ZeroBounceTestCase.test_blank_file_id) ... ok
+test_credits_invalid_key (tests.zero_bounce_test_case.ZeroBounceTestCase.test_credits_invalid_key) ... ok
+test_credits_valid (tests.zero_bounce_test_case.ZeroBounceTestCase.test_credits_valid) ... ok
+test_delete_file_valid (tests.zero_bounce_test_case.ZeroBounceTestCase.test_delete_file_valid) ... ok
+test_file_status_valid (tests.zero_bounce_test_case.ZeroBounceTestCase.test_file_status_valid) ... ok
+test_find_domain_both_domain_and_company_name (tests.zero_bounce_test_case.ZeroBounceTestCase.test_find_domain_both_domain_and_company_name) ... ok
+test_find_domain_confidence_enum_conversion (tests.zero_bounce_test_case.ZeroBounceTestCase.test_find_domain_confidence_enum_conversion) ... ok
+test_find_domain_neither_domain_nor_company_name (tests.zero_bounce_test_case.ZeroBounceTestCase.test_find_domain_neither_domain_nor_company_name) ... ok
+test_find_domain_with_company_name (tests.zero_bounce_test_case.ZeroBounceTestCase.test_find_domain_with_company_name) ... ok
+test_find_domain_with_domain (tests.zero_bounce_test_case.ZeroBounceTestCase.test_find_domain_with_domain) ... ok
+test_find_email_format_both_domain_and_company_name (tests.zero_bounce_test_case.ZeroBounceTestCase.test_find_email_format_both_domain_and_company_name) ... ok
+test_find_email_format_email_confidence_enum_conversion (tests.zero_bounce_test_case.ZeroBounceTestCase.test_find_email_format_email_confidence_enum_conversion) ... ok
+test_find_email_format_neither_domain_nor_company_name (tests.zero_bounce_test_case.ZeroBounceTestCase.test_find_email_format_neither_domain_nor_company_name) ... ok
+test_find_email_format_with_company_name (tests.zero_bounce_test_case.ZeroBounceTestCase.test_find_email_format_with_company_name) ... ok
+test_find_email_format_with_domain (tests.zero_bounce_test_case.ZeroBounceTestCase.test_find_email_format_with_domain) ... ok
+test_get_file_valid (tests.zero_bounce_test_case.ZeroBounceTestCase.test_get_file_valid) ... ok
+test_guess_format_status_invalid (tests.zero_bounce_test_case.ZeroBounceTestCase.test_guess_format_status_invalid) ... /home/vlungu/workspace/zerobounce/sdk/python/tests/zero_bounce_test_case.py:287: DeprecationWarning: guess_format is deprecated and will be removed in future versions. Use find_email_format or find_domain instead.
+  response = self.zero_bounce_client.guess_format(
+ok
+test_guess_format_status_valid (tests.zero_bounce_test_case.ZeroBounceTestCase.test_guess_format_status_valid) ... /home/vlungu/workspace/zerobounce/sdk/python/tests/zero_bounce_test_case.py:316: DeprecationWarning: guess_format is deprecated and will be removed in future versions. Use find_email_format or find_domain instead.
+  response = self.zero_bounce_client.guess_format(
+ok
+test_init_blank_key (tests.zero_bounce_test_case.ZeroBounceTestCase.test_init_blank_key) ... ok
+test_invalid_file_path (tests.zero_bounce_test_case.ZeroBounceTestCase.test_invalid_file_path) ... ok
+test_response_contains_error (tests.zero_bounce_test_case.ZeroBounceTestCase.test_response_contains_error) ... ok
+test_response_contains_errors (tests.zero_bounce_test_case.ZeroBounceTestCase.test_response_contains_errors) ... ok
+test_response_contains_message (tests.zero_bounce_test_case.ZeroBounceTestCase.test_response_contains_message) ... ok
+test_response_contains_message_list (tests.zero_bounce_test_case.ZeroBounceTestCase.test_response_contains_message_list) ... ok
+test_response_sub_status_accept_all (tests.zero_bounce_test_case.ZeroBounceTestCase.test_response_sub_status_accept_all) ... ok
+test_response_sub_status_role_based_accept_all (tests.zero_bounce_test_case.ZeroBounceTestCase.test_response_sub_status_role_based_accept_all) ... ok
+test_send_file_valid (tests.zero_bounce_test_case.ZeroBounceTestCase.test_send_file_valid) ... ok
+test_validate_batch_blank_email (tests.zero_bounce_test_case.ZeroBounceTestCase.test_validate_batch_blank_email) ... ok
+test_validate_batch_no_emails (tests.zero_bounce_test_case.ZeroBounceTestCase.test_validate_batch_no_emails) ... ok
+test_validate_batch_valid (tests.zero_bounce_test_case.ZeroBounceTestCase.test_validate_batch_valid) ... ok
+test_validate_valid (tests.zero_bounce_test_case.ZeroBounceTestCase.test_validate_valid) ... ok
+
+----------------------------------------------------------------------
+Ran 43 tests in 1.682s
+
+OK
+```
+
+### Publish
+```bash
+. venv/bin/activate
+pip install build twine
+vi pyproject.toml # update version
+python -m build
 ```

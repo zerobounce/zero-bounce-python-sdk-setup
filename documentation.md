@@ -10,11 +10,38 @@ Import the sdk in your file:
 from zerobouncesdk import ZeroBounce
 ```
 
-Initialize the sdk with your api key:
+Initialize the SDK with your API key. You can optionally specify a base URL to use a different API region or a custom endpoint:
 
+**Default**: Uses the default ZeroBounce API endpoint
 ```python
+from zerobouncesdk import ZeroBounce
+
 zero_bounce = ZeroBounce("<YOUR_API_KEY>")
 ```
+
+**Using predefined API regions**: Use one of the available API regions
+```python
+from zerobouncesdk import ZeroBounce, ZBApiUrl
+
+# Use USA region
+zero_bounce = ZeroBounce("<YOUR_API_KEY>", base_url=ZBApiUrl.API_USA_URL)
+
+# Use EU region
+zero_bounce = ZeroBounce("<YOUR_API_KEY>", base_url=ZBApiUrl.API_EU_URL)
+
+# Use default region (explicit)
+zero_bounce = ZeroBounce("<YOUR_API_KEY>", base_url=ZBApiUrl.API_DEFAULT_URL)
+```
+
+**Using a custom URL string**: Provide your own base URL
+```python
+zero_bounce = ZeroBounce("<YOUR_API_KEY>", base_url="https://custom-api.example.com/v2")
+```
+
+**Available API regions:**
+- `ZBApiUrl.API_DEFAULT_URL` - Default ZeroBounce API (https://api.zerobounce.net/v2/)
+- `ZBApiUrl.API_USA_URL` - USA region API (https://api-us.zerobounce.net/v2/)
+- `ZBApiUrl.API_EU_URL` - EU region API (https://api-eu.zerobounce.net/v2/)
 
 #### Examples
 Then you can use any of the SDK methods, for example:
@@ -61,23 +88,89 @@ except ZBException as e:
     print("ZeroBounce get_activity error: " + str(e))
 ```
 
-* ####### Identify the correct email format when you provide a name and email domain
+* ####### Find the correct email format when you provide a name and email domain or company name
 
 ```python
 from zerobouncesdk import ZeroBounce, ZBException
 
 zero_bounce = ZeroBounce("<YOUR_API_KEY>")
 
-domain = "example.com" # The email domain for which to find the email format
-first_name = "John" # The first name of the person whose email format is being searched
-middle_name = "Quill" # The middle name of the person whose email format is being searched
-last_name = "Doe" # The last name of the person whose email format is being searched
+# Option 1: Use find_email_format with domain
+domain = "example.com"  # The email domain for which to find the email format
+first_name = "John"      # The first name of the person whose email format is being searched
+middle_name = "Quill"    # Optional: The middle name of the person
+last_name = "Doe"        # Optional: The last name of the person
 
 try:
-    response = zero_bounce.guess_format(domain, first_name, middle_name, last_name)
-    print("ZeroBounce guess format response: " + response)
+    response = zero_bounce.find_email_format(
+        first_name=first_name,
+        domain=domain,
+        middle_name=middle_name,
+        last_name=last_name
+    )
+    print("Email: " + str(response.email))
+    print("Email Confidence: " + str(response.email_confidence))
 except ZBException as e:
-    print("ZeroBounce guess format error: " + str(e))
+    print("ZeroBounce find_email_format error: " + str(e))
+```
+
+```python
+# Option 2: Use find_email_format with company_name
+from zerobouncesdk import ZeroBounce, ZBException
+
+zero_bounce = ZeroBounce("<YOUR_API_KEY>")
+
+company_name = "Acme Corp"  # The company name for which to find the email format
+first_name = "Jane"          # The first name of the person
+
+try:
+    response = zero_bounce.find_email_format(
+        first_name=first_name,
+        company_name=company_name
+    )
+    print("Email: " + str(response.email))
+    print("Domain: " + str(response.domain))
+    print("Company: " + str(response.company_name))
+except ZBException as e:
+    print("ZeroBounce find_email_format error: " + str(e))
+```
+
+```python
+# Option 3: Use find_domain to discover email formats for a domain
+from zerobouncesdk import ZeroBounce, ZBException
+
+zero_bounce = ZeroBounce("<YOUR_API_KEY>")
+
+domain = "example.com"  # The email domain to analyze
+
+try:
+    response = zero_bounce.find_domain(domain=domain)
+    print("Domain: " + str(response.domain))
+    print("Format: " + str(response.format))
+    print("Confidence: " + str(response.confidence))
+    print("Other formats: " + str(len(response.other_domain_formats)))
+except ZBException as e:
+    print("ZeroBounce find_domain error: " + str(e))
+```
+
+```python
+# Option 4: Use find_domain with company_name
+from zerobouncesdk import ZeroBounce, ZBException
+
+zero_bounce = ZeroBounce("<YOUR_API_KEY>")
+
+company_name = "Acme Corp"  # The company name to analyze
+
+try:
+    response = zero_bounce.find_domain(company_name=company_name)
+    print("Domain: " + str(response.domain))
+    print("Company: " + str(response.company_name))
+    print("Format: " + str(response.format))
+    print("Confidence: " + str(response.confidence))
+    for fmt in response.other_domain_formats:
+        print(f"  Alternative: {fmt.format} (confidence: {fmt.confidence})")
+except ZBException as e:
+    print("ZeroBounce find_domain error: " + str(e))
 ```
 
 * ####### Validate an email address
