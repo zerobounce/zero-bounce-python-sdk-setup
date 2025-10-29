@@ -13,5 +13,7 @@ from .zb_file_status_response import ZBFileStatusResponse
 from .zb_get_file_response import ZBGetFileResponse
 from .zb_delete_file_response import ZBDeleteFileResponse
 from .zb_guess_format_response import ZBGuessFormatResponse
+from .zb_find_email_format_response import ZBFindEmailFormatResponse
+from .zb_find_domain_response import ZBFindDomainResponse
 
 from .zerobouncesdk import ZeroBounce

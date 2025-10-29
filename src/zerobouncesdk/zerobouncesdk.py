@@ -19,6 +19,8 @@ from . import (
     ZBGetFileResponse,
     ZBDeleteFileResponse,
     ZBGuessFormatResponse,
+    ZBFindEmailFormatResponse,
+    ZBFindDomainResponse,
 )
 
 
