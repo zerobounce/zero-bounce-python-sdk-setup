@@ -34,3 +34,4 @@ class ZBValidateSubStatus(Enum):
     allowed = "allowed"
     accept_all = "accept_all"
     role_based_accept_all = "role_based_accept_all"
+    gold = "gold"

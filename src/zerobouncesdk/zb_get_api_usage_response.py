@@ -102,6 +102,9 @@ class ZBGetApiUsageResponse(ZBResponse):
     sub_status_blocked: int = 0
     """Total number of times the API has a sub status of blocked"""
 
+    sub_status_gold: int = 0
+    """Total number of times the API has a sub status of gold"""
+
     start_date: date = None
     """Start date of query"""
 

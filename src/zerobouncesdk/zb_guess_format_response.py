@@ -7,6 +7,7 @@ from . import (
     ZBValidateSubStatus,
 )
 from ._zb_response import ZBResponse
+from ._zb_utils import safe_enum_convert
 
 
 class ZBDomainFormat(ZBResponse):
@@ -50,9 +51,9 @@ class ZBGuessFormatResponse(ZBResponse):
             message = data.get("message", data["Message"])
             raise ZBApiException(message)
 
-        self.status = ZBValidateStatus(self.status.lower())
-        self.sub_status = ZBValidateSubStatus(self.sub_status.lower())
-        self.confidence = ZBConfidence(self.confidence.lower())
+        self.status = safe_enum_convert(ZBValidateStatus, self.status, "status", lowercase=True)
+        self.sub_status = safe_enum_convert(ZBValidateSubStatus, self.sub_status, "sub_status", lowercase=True)
+        self.confidence = safe_enum_convert(ZBConfidence, self.confidence, "confidence", lowercase=True)
 
         self.other_domain_formats = [
             ZBDomainFormat(df_data) for df_data in data["other_domain_formats"]
