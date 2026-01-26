@@ -546,4 +546,5 @@ git tag -a vX.Y.Z -m "Release X.Y.Z"
 git push origin master
 git push origin vX.Y.Z
 python -m build
+twine upload dist/* 
 ```
