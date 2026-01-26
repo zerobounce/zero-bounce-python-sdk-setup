@@ -14,6 +14,8 @@ env/
 venv*/
 build/
 develop-eggs/
+.cursor/
+local/
 dist/
 downloads/
 eggs/
