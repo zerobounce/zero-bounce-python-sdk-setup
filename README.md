@@ -541,5 +541,9 @@ OK
 . venv/bin/activate
 pip install build twine
 vi pyproject.toml # update version
+git commit -m 
+git tag -a vX.Y.Z -m "Release X.Y.Z"
+git push origin master
+git push origin vX.Y.Z
 python -m build
 ```
