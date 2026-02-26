@@ -1,5 +1,5 @@
 import warnings
-from datetime import date
+from datetime import date, timedelta
 import os
 from typing import List, Optional, Union
 
@@ -31,7 +31,7 @@ class ZeroBounce:
     BULK_BASE_URL = "https://bulkapi.zerobounce.net/v2"
     SCORING_BASE_URL = "https://bulkapi.zerobounce.net/v2/scoring"
 
-    def __init__(self, api_key: str, base_url: Optional[Union[ZBApiUrl, str]] = None):
+    def __init__(self, api_key: str, base_url: Optional[Union[ZBApiUrl, str]] = None, timeout: timedelta | None = None):
         """Initialize the ZeroBounce client.
 
         Parameters
@@ -41,6 +41,7 @@ class ZeroBounce:
         base_url: Optional[Union[ZBApiUrl, str]], default ZBApiUrl.API_DEFAULT_URL
             The base URL for the API. Can be a ZBApiUrl enum value, a custom URL string,
             or None to use the default URL.
+        timeout: Optional[timedelta], default timeout to use for API requests.
 
         Raises
         ------
@@ -64,11 +65,13 @@ class ZeroBounce:
         # Remove trailing slash if present to maintain consistent URL construction
         self._base_url = self._base_url.rstrip('/')
 
+        self._timeout_s: float | None = None if timeout is None else timeout.total_seconds()
+
     def _get(self, url, response_class, params=None):
         if not params:
             params = {}
         params["api_key"] = self._api_key
-        response = requests.get(url, params=params)
+        response = requests.get(url, params=params, timeout=self._timeout_s)
 
         try:
             json_response = response.json()
@@ -81,7 +84,7 @@ class ZeroBounce:
         return response_class(json_response)
 
     def _post(self, url, response_class, data=None, json=None, files=None):
-        response = requests.post(url, data=data, json=json, files=files)
+        response = requests.post(url, data=data, json=json, files=files, timeout=self._timeout_s)
         try:
             json_response = response.json()
         except ValueError as e:
