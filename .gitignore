@@ -62,4 +62,6 @@ docs/_build/
 target/
 \.idea/
 .vscode/
+
+.DS_Store
 .env

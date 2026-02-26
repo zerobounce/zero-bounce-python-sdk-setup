@@ -90,6 +90,9 @@ class ZBGetApiUsageResponse(ZBResponse):
     sub_status_failed_smtp_connection: int = 0
     """Total number of times the API has a sub status of failed_smtp_connection"""
 
+    sub_status_accept_all: int = 0
+    """Total number of times the API has a sub status of accept_all"""
+
     sub_status_mx_forward: int = 0
     """Total number of times the API has a sub status of mx_forward"""
 
@@ -104,6 +107,9 @@ class ZBGetApiUsageResponse(ZBResponse):
 
     sub_status_gold: int = 0
     """Total number of times the API has a sub status of gold"""
+
+    sub_status_role_based_accept_all: int = 0
+    """Total number of times the API has a sub status of role_based_accept_all"""
 
     start_date: date = None
     """Start date of query"""

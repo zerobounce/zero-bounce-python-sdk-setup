@@ -20,5 +20,25 @@ keywords = ["zero", "bounce", "sdk"]
 dependencies = ["requests >= 2.22.0"]
 requires-python = ">=3.7"
 
+[project.optional-dependencies]
+test = ["pytest>=7.0.0", "pytest-cov>=4.0.0"]
+
 [project.urls]
 Homepage = "https://github.com/zerobounce/zero-bounce-python-sdk-setup"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py", "*_test.py", "zero_bounce_test_case.py"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short"
+filterwarnings = ["ignore::DeprecationWarning"]
+
+[tool.coverage.run]
+source = ["src"]
+omit = ["*/tests/*", "*__main__*", "*/__main__*"]
+branch = true
+
+[tool.coverage.report]
+fail_under = 50
+show_missing = true
+exclude_lines = ["pragma: no cover", "def __repr__", "raise AssertionError"]

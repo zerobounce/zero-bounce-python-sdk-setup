@@ -397,7 +397,15 @@ source venv/bin/activate
 pip install -e .
 ```
 
-### Run tests
+### Run tests with Docker
+From the **parent repository root** (the folder that contains all SDKs and `docker-compose.yml`):
+
+```bash
+docker compose build python
+docker compose run --rm python
+```
+
+### Run tests (local)
 ```bash
 python -m tests -v
 

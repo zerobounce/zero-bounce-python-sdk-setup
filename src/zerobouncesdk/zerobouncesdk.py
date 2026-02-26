@@ -1,7 +1,7 @@
 import warnings
 from datetime import date
 import os
-from typing import List, Optional, Union
+from typing import BinaryIO, List, Optional, Union
 
 import requests
 
@@ -235,6 +235,25 @@ class ZeroBounce:
             files = {"file": (os.path.basename(file_path), file, "text/csv")}
             return self._post(url, ZBSendFileResponse, data=data, files=files)
 
+    def _send_file_from_stream(
+        self,
+        scoring: bool,
+        file_stream: BinaryIO,
+        file_name: str,
+        email_address_column: int,
+        data: dict,
+    ):
+        data = dict(data)
+        data.update(
+            {
+                "api_key": self._api_key,
+                "email_address_column": email_address_column,
+            }
+        )
+        url = f"{self.SCORING_BASE_URL if scoring else self.BULK_BASE_URL}/sendfile"
+        files = {"file": (file_name, file_stream, "text/csv")}
+        return self._post(url, ZBSendFileResponse, data=data, files=files)
+
     def send_file(
         self,
         file_path: str,
@@ -298,6 +317,68 @@ class ZeroBounce:
 
         return self._send_file(False, file_path, email_address_column, data)
 
+    def send_file_stream(
+        self,
+        file_stream: BinaryIO,
+        file_name: str,
+        email_address_column: int,
+        return_url: str = None,
+        first_name_column: int = None,
+        last_name_column: int = None,
+        gender_column: int = None,
+        ip_address_column: int = None,
+        has_header_row: bool = False,
+        remove_duplicate: bool = True,
+    ):
+        """Send a file for bulk email validation from a stream (e.g. in-memory CSV or uploaded file).
+
+        Parameters
+        ----------
+        file_stream: BinaryIO
+            A file-like object opened in binary mode (e.g. io.BytesIO, or open(..., "rb")).
+        file_name: str
+            The file name to use for the upload (e.g. "emails.csv").
+        email_address_column: int
+            The column index of the email address in the file. Index starts from 1.
+        return_url: str or None
+            The URL will be used to call back when the validation is completed.
+        first_name_column: int or None
+            The column index of the first name column.
+        last_name_column: int or None
+            The column index of the last name column.
+        gender_column: int or None
+            The column index of the gender column.
+        ip_address_column: int or None
+            The IP Address the email signed up from.
+        has_header_row: bool
+            If the first row from the submitted file is a header row.
+        remove_duplicate: bool
+            If you want the system to remove duplicate emails.
+
+        Returns
+        -------
+        response: ZBSendFileResponse
+        """
+        data = {}
+        if return_url is not None:
+            data["return_url"] = return_url
+        if first_name_column is not None:
+            data["first_name_column"] = first_name_column
+        if last_name_column is not None:
+            data["last_name_column"] = last_name_column
+        if gender_column is not None:
+            data["gender_column"] = gender_column
+        if ip_address_column is not None:
+            data["ip_address_column"] = ip_address_column
+        if has_header_row is not None:
+            data["has_header_row"] = has_header_row
+        if remove_duplicate is not None:
+            data["remove_duplicate"] = remove_duplicate
+
+        return self._send_file_from_stream(
+            False, file_stream, file_name, email_address_column, data
+        )
+
     def scoring_send_file(
         self,
         file_path: str,
@@ -340,6 +421,48 @@ class ZeroBounce:
             data["remove_duplicate"] = remove_duplicate
 
         return self._send_file(True, file_path, email_address_column, data)
+
+    def scoring_send_file_stream(
+        self,
+        file_stream: BinaryIO,
+        file_name: str,
+        email_address_column: int,
+        return_url: str = None,
+        has_header_row: bool = False,
+        remove_duplicate: bool = True,
+    ):
+        """Send a file for bulk email scoring from a stream.
+
+        Parameters
+        ----------
+        file_stream: BinaryIO
+            A file-like object opened in binary mode.
+        file_name: str
+            The file name to use for the upload (e.g. "emails.csv").
+        email_address_column: int
+            The column index of the email address in the file. Index starts from 1.
+        return_url: str or None
+            The URL will be used to call back when the validation is completed.
+        has_header_row: bool
+            If the first row from the submitted file is a header row.
+        remove_duplicate: bool
+            If you want the system to remove duplicate emails.
+
+        Returns
+        -------
+        response: ZBSendFileResponse
+        """
+        data = {}
+        if return_url is not None:
+            data["return_url"] = return_url
+        if has_header_row is not None:
+            data["has_header_row"] = has_header_row
+        if remove_duplicate is not None:
+            data["remove_duplicate"] = remove_duplicate
+
+        return self._send_file_from_stream(
+            True, file_stream, file_name, email_address_column, data
+        )
 
     def _file_status(self, scoring: bool, file_id: str):
         if not file_id.strip():
