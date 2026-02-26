@@ -24,5 +24,5 @@ class ZBValidateBatchResponse(ZBResponse):
     """An Array of errors encountered, if any"""
 
     def __init__(self, data):
-        self.email_batch = [ZBValidateBatchEmail(email) for email in data["email_batch"]]
-        self.errors = [ZBValidateBatchError(error) for error in data["errors"]]
+        self.email_batch = [ZBValidateBatchEmail(email) for email in data.get("email_batch", [])]
+        self.errors = [ZBValidateBatchError(error) for error in data.get("errors", [])]

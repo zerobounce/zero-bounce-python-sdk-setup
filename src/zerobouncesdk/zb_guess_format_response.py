@@ -21,7 +21,7 @@ class ZBDomainFormat(ZBResponse):
 
     def __init__(self, data=None):
         super().__init__(data)
-        self.confidence = ZBConfidence(self.confidence.lower())
+        self.confidence = safe_enum_convert(ZBConfidence, self.confidence, "confidence", lowercase=True)
 
 
 class ZBGuessFormatResponse(ZBResponse):
@@ -56,5 +56,5 @@ class ZBGuessFormatResponse(ZBResponse):
         self.confidence = safe_enum_convert(ZBConfidence, self.confidence, "confidence", lowercase=True)
 
         self.other_domain_formats = [
-            ZBDomainFormat(df_data) for df_data in data["other_domain_formats"]
+            ZBDomainFormat(df_data) for df_data in data.get("other_domain_formats", [])
         ]

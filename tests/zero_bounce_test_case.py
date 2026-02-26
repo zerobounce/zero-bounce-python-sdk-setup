@@ -15,7 +15,13 @@ from zerobouncesdk import (
 )
 from zerobouncesdk._zb_response import ZBResponse
 
+
 class ZeroBounceTestCase(BaseTestCase):
+
+    def test_zb_response_handles_none_data(self):
+        """ZBResponse with None data should not crash (e.g. malformed API response)."""
+        r = ZBResponse(None)
+        self.assertEqual(r.__dict__, {})
 
     def test_init_blank_key(self):
         with self.assertRaises(ZBClientException) as cm:
@@ -38,6 +44,12 @@ class ZeroBounceTestCase(BaseTestCase):
 
         response = self.zero_bounce_client.get_credits()
         self.assertEqual(response.credits, "12345")
+
+    def test_credits_handles_missing_credits_key(self):
+        """API may omit Credits key or return null; client should not crash."""
+        self.requests_mock.get.return_value = MockResponse({})
+        response = self.zero_bounce_client.get_credits()
+        self.assertIsNone(response.credits)
 
     def test_response_contains_error(self):
         self.requests_mock.get.return_value = MockResponse({
@@ -172,6 +184,13 @@ class ZeroBounceTestCase(BaseTestCase):
         self.assertEqual(response.email_batch[1].status, ZBValidateStatus.invalid)
         self.assertEqual(response.email_batch[1].sub_status, ZBValidateSubStatus.mailbox_not_found)
         self.assertEqual(len(response.errors), 0)
+
+    def test_validate_batch_handles_missing_email_batch_and_errors_keys(self):
+        """API may omit email_batch or errors keys; client should not crash."""
+        self.requests_mock.post.return_value = MockResponse({})
+        response = self.zero_bounce_client.validate_batch([ZBValidateBatchElement("a@b.com")])
+        self.assertEqual(response.email_batch, [])
+        self.assertEqual(response.errors, [])
 
     def test_response_contains_message_list(self):
         self.requests_mock.get.return_value = MockResponse({
@@ -337,6 +356,29 @@ class ZeroBounceTestCase(BaseTestCase):
         self.assertEqual(response.other_domain_formats[0].confidence, ZBConfidence.high)
         self.assertEqual(response.other_domain_formats[1].format, "first")
         self.assertEqual(response.other_domain_formats[1].confidence, ZBConfidence.medium)
+
+    def test_guess_format_handles_none_status_sub_status_confidence(self):
+        """Regression for issue #9: API may return null for status/sub_status/confidence."""
+        self.requests_mock.get.return_value = MockResponse({
+            "email": "",
+            "domain": "example.com",
+            "format": "first.last",
+            "status": None,
+            "sub_status": None,
+            "confidence": None,
+            "did_you_mean": "",
+            "failure_reason": "",
+            "other_domain_formats": [
+                {"format": "first_last", "confidence": None},
+            ]
+        })
+        response = self.zero_bounce_client.guess_format("example.com", "John", "", "Doe")
+        self.assertIsNone(response.status)
+        self.assertIsNone(response.sub_status)
+        self.assertIsNone(response.confidence)
+        self.assertEqual(len(response.other_domain_formats), 1)
+        self.assertEqual(response.other_domain_formats[0].format, "first_last")
+        self.assertIsNone(response.other_domain_formats[0].confidence)
 
     def test_find_email_format_with_domain(self):
         self.requests_mock.get.return_value = MockResponse({

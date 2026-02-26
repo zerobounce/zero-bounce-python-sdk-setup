@@ -7,4 +7,4 @@ class ZBGetCreditsResponse(ZBResponse):
     credits: str = None
 
     def __init__(self, data):
-        self.credits = data["Credits"]
+        self.credits = data.get("Credits")
