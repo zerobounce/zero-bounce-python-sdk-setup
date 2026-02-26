@@ -1,4 +1,4 @@
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 
@@ -13,6 +13,7 @@ from zerobouncesdk import (
     ZBValidateBatchError,
     ZeroBounce,
 )
+from zerobouncesdk._zb_response import ZBResponse
 
 class ZeroBounceTestCase(BaseTestCase):
 
@@ -495,3 +496,19 @@ class ZeroBounceTestCase(BaseTestCase):
         response = self.zero_bounce_client.find_domain(domain="example.com")
         self.assertIsInstance(response.confidence, ZBConfidence)
         self.assertEqual(response.confidence, ZBConfidence.high)
+
+    def test_gets_pass_timeout(self):
+        self.requests_mock.get.return_value = MockResponse({'a': 'b'})
+
+        client = ZeroBounce("dummy_key", timeout=timedelta(milliseconds=123))
+        response = client._get("https://example.com", ZBResponse)
+        self.assertEqual(response.a, 'b')
+        self.requests_mock.get.assert_called_with('https://example.com', params={'api_key': 'dummy_key'}, timeout=0.123)
+
+    def test_posts_pass_timeout(self):
+        self.requests_mock.post.return_value = MockResponse({'a': 'b'})
+
+        client = ZeroBounce("dummy_key", timeout=timedelta(milliseconds=123))
+        response = client._post("https://example.com", ZBResponse)
+        self.assertEqual(response.a, 'b')
+        self.requests_mock.post.assert_called_with('https://example.com', data=None, json=None, files=None, timeout=0.123)
