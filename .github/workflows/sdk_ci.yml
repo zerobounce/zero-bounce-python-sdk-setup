@@ -1,0 +1,28 @@
+# Run unit tests and coverage on every PR (no API key required for unit tests).
+name: SDK CI
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  push:
+    branches: [main, master]
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -e ".[test]"
+
+      - name: Run unit tests with coverage
+        run: |
+          python -m pytest tests/zero_bounce_test_case.py -v \
+            --cov=zerobouncesdk --cov-report=term-missing --cov-fail-under=50
