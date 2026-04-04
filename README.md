@@ -228,6 +228,7 @@ gender_column = None            # The index of "gender" column in the file
 ip_address_column = None        # The index of "IP address" column in the file
 has_header_row = False          # If the first row from the submitted file is a header row
 remove_duplicate = True         # If you want the system to remove duplicate emails
+allow_phase_2 = True            # Optional: sends allow_phase_2 (validation bulk only); omit or use None to skip
 
 try:
     response = zero_bounce.send_file(
@@ -240,11 +241,14 @@ try:
         ip_address_column,
         has_header_row,
         remove_duplicate,
+        allow_phase_2,
     )
     print("ZeroBounce send_file response: " + str(response))
 except ZBException as e:
     print("ZeroBounce send_file error: " + str(e))
 ```
+
+Bulk validation uses `https://bulkapi.zerobounce.net/v2`. See [v2 send file](https://www.zerobounce.net/docs/email-validation-api-quickstart/v2-send-file), [v2 file status](https://www.zerobounce.net/docs/email-validation-api-quickstart/v2-file-status), and [v2 get file](https://www.zerobounce.net/docs/email-validation-api-quickstart/v2-get-file).
 
 * ##### Check the status of a file uploaded via _sendFile_ method
 ```python
@@ -256,6 +260,7 @@ file_id = "<FILE_ID>"       # The returned file ID when calling sendFile API
 
 try:
     response = zero_bounce.file_status(file_id)
+    # response.file_status, response.file_phase_2_status, response.error_reason (when present)
     print("ZeroBounce file_status response: " + str(response))
 except ZBException as e:
     print("ZeroBounce file_status error: " + str(e))
@@ -276,6 +281,18 @@ try:
 except ZBException as e:
     print("ZeroBounce get_file error: " + str(e))
 ```
+
+Optional [v2 get file](https://www.zerobounce.net/docs/email-validation-api-quickstart/v2-get-file) query parameters use `ZBGetFileOptions` and `ZBDownloadType` (`PHASE_1`, `PHASE_2`, `COMBINED`). Set `activity_data` on the options object for validation `get_file` only; it is not sent for `scoring_get_file`.
+
+```python
+from zerobouncesdk import ZeroBounce, ZBException, ZBGetFileOptions, ZBDownloadType
+
+zero_bounce = ZeroBounce("<YOUR_API_KEY>")
+opts = ZBGetFileOptions(download_type=ZBDownloadType.COMBINED, activity_data=True)
+response = zero_bounce.get_file(file_id, local_download_path, opts)
+```
+
+If the API returns a non-success HTTP status or a JSON error body (including some HTTP 200 responses with `success: false`), the client raises `ZBApiException`. To inspect a raw body string yourself, use `ZeroBounce.get_file_json_indicates_error(body)`.
 
 * ##### Delete the file that was submitted using _sendFile_ API. File can be deleted only when its status is `Complete`
 ```python
@@ -348,6 +365,8 @@ local_download_path = "./dwnld_file.csv"    # The path where the file will be do
 try:
     response = zero_bounce.scoring_get_file(file_id, local_download_path)
     print("ZeroBounce get_file response: " + str(response))
+    # Optional third argument: ZBGetFileOptions with download_type only (activity_data is not used for scoring getfile)
+    # response = zero_bounce.scoring_get_file(file_id, local_download_path, opts)
 except ZBException as e:
     print("ZeroBounce get_file error: " + str(e))
 ```
@@ -403,6 +422,13 @@ From the **parent repository root** (the folder that contains all SDKs and `dock
 ```bash
 docker compose build python
 docker compose run --rm python
+```
+
+Or build and run this SDK’s image from this directory:
+
+```bash
+docker build -t zb-python-sdk .
+docker run --rm zb-python-sdk
 ```
 
 ### Run tests (local)

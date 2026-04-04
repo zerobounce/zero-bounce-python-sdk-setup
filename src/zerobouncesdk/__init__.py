@@ -1,4 +1,6 @@
 from .zb_api_url import ZBApiUrl
+from .zb_download_type import ZBDownloadType
+from .zb_get_file_options import ZBGetFileOptions
 from .zb_confidence import ZBConfidence
 from .zb_exceptions import ZBException, ZBApiException, ZBClientException
 from .zb_get_credits_response import ZBGetCreditsResponse

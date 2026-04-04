@@ -14,6 +14,8 @@ class ZBFileStatusResponse(ZBFileResponse):
 
     file_status: str = None
 
+    file_phase_2_status: str = None
+
     complete_percentage: str = None
 
     error_reason: str = None

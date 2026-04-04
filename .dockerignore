@@ -1,6 +1,10 @@
 .git/
 .gitignore
+
+# Docs not needed in the test image
 *.md
+documentation*.md
+
 .env
 .env.*
 .pytest_cache/
@@ -8,6 +12,12 @@
 .eggs/
 __pycache__/
 *.pyc
+dist/
+build/
+htmlcov/
+.tox/
 coverage/
 .coverage
 .coverage.*
+
+Thumbs.db

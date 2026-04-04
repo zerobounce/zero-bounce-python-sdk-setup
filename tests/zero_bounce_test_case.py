@@ -7,6 +7,8 @@ from zerobouncesdk import (
     ZBApiException,
     ZBClientException,
     ZBConfidence,
+    ZBDownloadType,
+    ZBGetFileOptions,
     ZBValidateStatus,
     ZBValidateSubStatus,
     ZBValidateBatchElement,
@@ -198,10 +200,9 @@ class ZeroBounceTestCase(BaseTestCase):
             "message": ["api_key is invalid"],
         })
 
-        response = self.zero_bounce_client.get_file("any_file_id", "any_download_path")
-        expected_error = "api_key is invalid"
-        self.assertFalse(response.success)
-        self.assertEqual(response.message, expected_error)
+        with self.assertRaises(ZBApiException) as cm:
+            self.zero_bounce_client.get_file("any_file_id", "any_download_path")
+        self.assertEqual(str(cm.exception), "api_key is invalid")
 
     def test_response_contains_message(self):
         self.requests_mock.get.return_value = MockResponse({
@@ -209,10 +210,9 @@ class ZeroBounceTestCase(BaseTestCase):
             "message": "File cannot be found.",
         })
 
-        response = self.zero_bounce_client.get_file("invalid_file_id", "any_download_path")
-        expected_error = "File cannot be found."
-        self.assertFalse(response.success)
-        self.assertEqual(response.message, expected_error)
+        with self.assertRaises(ZBApiException) as cm:
+            self.zero_bounce_client.get_file("invalid_file_id", "any_download_path")
+        self.assertEqual(str(cm.exception), "File cannot be found.")
 
     def test_invalid_file_path(self):
         with self.assertRaises(FileNotFoundError) as cm:
@@ -244,6 +244,36 @@ class ZeroBounceTestCase(BaseTestCase):
         self.assertEqual(response.file_name, "emails.txt")
         self.assertEqual(response.file_id, "5e87c21f-45b2-4803-8daf-307f29fa7340")
 
+    def test_send_file_allow_phase_2(self):
+        self.requests_mock.post.return_value = MockResponse({
+            "success": True,
+            "message": "File Accepted",
+            "file_name": "emails.txt",
+            "file_id": "5e87c21f-45b2-4803-8daf-307f29fa7340",
+        })
+        file = Path("emails_allow2.txt")
+        self.addCleanup(self._delete_file, file=file)
+        file.touch()
+
+        self.zero_bounce_client.send_file("emails_allow2.txt", 1, allow_phase_2=True)
+        _, kwargs = self.requests_mock.post.call_args
+        self.assertEqual(kwargs["data"]["allow_phase_2"], "true")
+
+    def test_scoring_send_file_no_allow_phase_2(self):
+        self.requests_mock.post.return_value = MockResponse({
+            "success": True,
+            "message": "File Accepted",
+            "file_name": "emails.txt",
+            "file_id": "5e87c21f-45b2-4803-8daf-307f29fa7340",
+        })
+        file = Path("emails_score.txt")
+        self.addCleanup(self._delete_file, file=file)
+        file.touch()
+
+        self.zero_bounce_client.scoring_send_file("emails_score.txt", 1)
+        _, kwargs = self.requests_mock.post.call_args
+        self.assertNotIn("allow_phase_2", kwargs["data"])
+
     def test_blank_file_id(self):
         with self.assertRaises(ZBClientException) as cm:
             self.zero_bounce_client.get_file("  ", "any_download_path")
@@ -257,6 +287,7 @@ class ZeroBounceTestCase(BaseTestCase):
             "file_name": "emails.txt",
             "upload_date": "2023-03-28T12:30:18Z",
             "file_status": "Complete",
+            "file_phase_2_status": "N/A",
             "complete_percentage": "100%",
             "return_url": "Your return URL if provided when calling sendfile API",
         })
@@ -267,6 +298,7 @@ class ZeroBounceTestCase(BaseTestCase):
         self.assertEqual(response.file_name, "emails.txt")
         self.assertEqual(response.upload_date, datetime(2023, 3, 28, 12, 30, 18))
         self.assertEqual(response.file_status, "Complete")
+        self.assertEqual(response.file_phase_2_status, "N/A")
 
     def test_get_file_valid(self):
         self.requests_mock.get.return_value = MockResponse(
@@ -287,6 +319,38 @@ class ZeroBounceTestCase(BaseTestCase):
         self.assertTrue(file.is_file())
         self.assertTrue(response.success)
         self.assertEqual(response.local_file_path, "results.txt")
+
+    def test_get_file_with_options_query_params(self):
+        self.requests_mock.get.return_value = MockResponse(
+            json_data=None,
+            content=b"a,b\n1,2\n",
+            headers={"Content-Type": "text/csv"},
+        )
+        out = Path("opts_out.csv")
+        self.addCleanup(self._delete_file, file=out)
+        opt = ZBGetFileOptions(download_type=ZBDownloadType.COMBINED, activity_data=True)
+        self.zero_bounce_client.get_file("5e87c21f-45b2-4803-8daf-307f29fa7340", str(out), opt)
+        _, kwargs = self.requests_mock.get.call_args
+        self.assertEqual(kwargs["params"]["download_type"], "combined")
+        self.assertEqual(kwargs["params"]["activity_data"], "true")
+
+    def test_scoring_get_file_omits_activity_data(self):
+        self.requests_mock.get.return_value = MockResponse(
+            json_data=None,
+            content=b"a,b\n",
+            headers={"Content-Type": "text/csv"},
+        )
+        out = Path("sco_out.csv")
+        self.addCleanup(self._delete_file, file=out)
+        opt = ZBGetFileOptions(download_type=ZBDownloadType.PHASE_2, activity_data=True)
+        self.zero_bounce_client.scoring_get_file("5e87c21f-45b2-4803-8daf-307f29fa7340", str(out), opt)
+        _, kwargs = self.requests_mock.get.call_args
+        self.assertEqual(kwargs["params"]["download_type"], "phase_2")
+        self.assertNotIn("activity_data", kwargs["params"])
+
+    def test_get_file_json_indicates_error_static(self):
+        self.assertTrue(ZeroBounce.get_file_json_indicates_error('{"success":false,"message":""}'))
+        self.assertFalse(ZeroBounce.get_file_json_indicates_error('{"file_id":"x"}'))
 
     def test_delete_file_valid(self):
         self.requests_mock.get.return_value = MockResponse({

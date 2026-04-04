@@ -1,3 +1,4 @@
+import json
 import warnings
 from datetime import date, timedelta
 import os
@@ -5,6 +6,7 @@ from typing import BinaryIO, List, Optional, Union
 
 import requests
 
+from .zb_get_file_options import ZBGetFileOptions
 from . import (
     ZBApiException,
     ZBApiUrl,
@@ -66,6 +68,56 @@ class ZeroBounce:
         self._base_url = self._base_url.rstrip('/')
 
         self._timeout_s: float | None = None if timeout is None else timeout.total_seconds()
+
+    @staticmethod
+    def get_file_json_indicates_error(body: str) -> bool:
+        """Whether a getfile response body looks like a JSON error payload (including HTTP 200)."""
+        t = body.lstrip()
+        if not t or t[0] != "{":
+            return False
+        try:
+            o = json.loads(body)
+        except ValueError:
+            return False
+        if not isinstance(o, dict):
+            return False
+        if "success" in o:
+            s = o["success"]
+            if s is False or s == "False" or s == "false":
+                return True
+        for k in ("message", "error", "error_message"):
+            v = o.get(k)
+            if v:
+                if isinstance(v, str) and v.strip():
+                    return True
+                if isinstance(v, list) and len(v) > 0:
+                    return True
+        return "success" in o
+
+    @staticmethod
+    def _format_get_file_error_message(body: str) -> str:
+        try:
+            o = json.loads(body)
+        except ValueError:
+            return body if body else "Invalid getfile response"
+        if not isinstance(o, dict):
+            return body
+        for k in ("message", "error", "error_message"):
+            v = o.get(k)
+            if not v:
+                continue
+            if isinstance(v, str) and v.strip():
+                return v.strip()
+            if isinstance(v, list) and v and isinstance(v[0], str):
+                return v[0].strip()
+        return body
+
+    @staticmethod
+    def _should_treat_get_file_body_as_error(body: str, content_type: str) -> bool:
+        ct = content_type.lower()
+        if "application/json" in ct:
+            return True
+        return ZeroBounce.get_file_json_indicates_error(body)
 
     def _get(self, url, response_class, params=None):
         if not params:
@@ -268,6 +320,7 @@ class ZeroBounce:
         ip_address_column: int = None,
         has_header_row: bool = False,
         remove_duplicate: bool = True,
+        allow_phase_2: Optional[bool] = None,
     ):
         """Allows user to send a file for bulk email validation
 
@@ -291,6 +344,8 @@ class ZeroBounce:
             If the first row from the submitted file is a header row.
         remove_duplicate: bool
             If you want the system to remove duplicate emails.
+        allow_phase_2: bool or None
+            When not None, sends allow_phase_2 (validation bulk sendfile only).
 
         Raises
         ------
@@ -317,6 +372,8 @@ class ZeroBounce:
             data["has_header_row"] = has_header_row
         if remove_duplicate is not None:
             data["remove_duplicate"] = remove_duplicate
+        if allow_phase_2 is not None:
+            data["allow_phase_2"] = "true" if allow_phase_2 else "false"
 
         return self._send_file(False, file_path, email_address_column, data)
 
@@ -332,6 +389,7 @@ class ZeroBounce:
         ip_address_column: int = None,
         has_header_row: bool = False,
         remove_duplicate: bool = True,
+        allow_phase_2: Optional[bool] = None,
     ):
         """Send a file for bulk email validation from a stream (e.g. in-memory CSV or uploaded file).
 
@@ -357,6 +415,8 @@ class ZeroBounce:
             If the first row from the submitted file is a header row.
         remove_duplicate: bool
             If you want the system to remove duplicate emails.
+        allow_phase_2: bool or None
+            When not None, sends allow_phase_2 (validation bulk sendfile only).
 
         Returns
         -------
@@ -377,6 +437,8 @@ class ZeroBounce:
             data["has_header_row"] = has_header_row
         if remove_duplicate is not None:
             data["remove_duplicate"] = remove_duplicate
+        if allow_phase_2 is not None:
+            data["allow_phase_2"] = "true" if allow_phase_2 else "false"
 
         return self._send_file_from_stream(
             False, file_stream, file_name, email_address_column, data
@@ -516,29 +578,56 @@ class ZeroBounce:
 
         return self._file_status(True, file_id)
 
-    def _get_file(self, scoring: bool, file_id: str, download_path: str):
+    def _get_file(
+        self,
+        scoring: bool,
+        file_id: str,
+        download_path: str,
+        options: Optional[ZBGetFileOptions] = None,
+    ):
         if not file_id.strip():
             raise ZBClientException("Empty parameter: file_id")
+        params = {
+            "api_key": self._api_key,
+            "file_id": file_id,
+        }
+        if options is not None:
+            if options.download_type:
+                params["download_type"] = options.download_type
+            if not scoring and options.activity_data is not None:
+                params["activity_data"] = "true" if options.activity_data else "false"
+
         response = requests.get(
             f"{self.SCORING_BASE_URL if scoring else self.BULK_BASE_URL}/getfile",
-            params={
-                "api_key": self._api_key,
-                "file_id": file_id,
-            },
+            params=params,
+            timeout=self._timeout_s,
         )
-        if response.headers["Content-Type"] == "application/json":
-            json_response = response.json()
-            return ZBGetFileResponse(json_response)
+        body_bytes = response.content or b""
+        body_str = body_bytes.decode("utf-8", errors="replace")
+        content_type = response.headers.get("Content-Type") or ""
+
+        if response.status_code > 299:
+            if body_str.lstrip().startswith("{"):
+                raise ZBApiException(self._format_get_file_error_message(body_str))
+            raise ZBApiException(body_str or f"HTTP {response.status_code}")
+
+        if self._should_treat_get_file_body_as_error(body_str, content_type):
+            raise ZBApiException(self._format_get_file_error_message(body_str))
 
         dirname = os.path.dirname(download_path)
         if dirname:
             os.makedirs(dirname, exist_ok=True)
         with open(download_path, "wb") as f:
-            f.write(response.content)
+            f.write(body_bytes)
 
         return ZBGetFileResponse({"local_file_path": download_path})
 
-    def get_file(self, file_id: str, download_path: str):
+    def get_file(
+        self,
+        file_id: str,
+        download_path: str,
+        options: Optional[ZBGetFileOptions] = None,
+    ):
         """Allows you to get the validation results for the file you submitted
 
         Parameters
@@ -547,10 +636,13 @@ class ZeroBounce:
             The returned file ID when calling sendfile API.
         download_path: str
             The local path where the file will be downloaded.
+        options: ZBGetFileOptions or None
+            Optional download_type and activity_data (validation bulk getfile only).
 
         Raises
         ------
         ZBClientException
+        ZBApiException
 
         Returns
         -------
@@ -558,9 +650,14 @@ class ZeroBounce:
             Returns a ZBGetFileResponse object if the request was successful
         """
 
-        return self._get_file(False, file_id, download_path)
+        return self._get_file(False, file_id, download_path, options)
 
-    def scoring_get_file(self, file_id: str, download_path: str):
+    def scoring_get_file(
+        self,
+        file_id: str,
+        download_path: str,
+        options: Optional[ZBGetFileOptions] = None,
+    ):
         """Allows you to get the validation results for the file you submitted
 
         Parameters
@@ -569,10 +666,13 @@ class ZeroBounce:
             The returned file ID when calling sendfile API.
         download_path: str
             The local path where the file will be downloaded.
+        options: ZBGetFileOptions or None
+            Optional download_type; activity_data is not sent for scoring getfile.
 
         Raises
         ------
         ZBClientException
+        ZBApiException
 
         Returns
         -------
@@ -580,7 +680,7 @@ class ZeroBounce:
             Returns a ZBGetFileResponse object if the request was successful
         """
 
-        return self._get_file(True, file_id, download_path)
+        return self._get_file(True, file_id, download_path, options)
 
     def _delete_file(self, scoring: bool, file_id: str):
         if not file_id.strip():
