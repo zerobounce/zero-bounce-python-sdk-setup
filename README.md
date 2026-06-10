@@ -468,4 +468,37 @@ OK
 
 ## Publish
 
-See the [sdk-docs (PyPI)](../sdk-docs/pypi/) guide in the SDKs repo for version, tag, build, and `twine upload` steps.
+Publishing to [PyPI](https://pypi.org/project/zerobouncesdk/) uses **GitHub Actions** (manual tag workflow).
+
+### One-time setup
+
+**Option A — PyPI trusted publishing (recommended)**
+
+On https://pypi.org/manage/project/zerobouncesdk/settings/publishing/ → **Add a new pending publisher** (GitHub Actions):
+
+| Field | Value |
+|-------|--------|
+| PyPI project name | `zerobouncesdk` |
+| Owner | `zerobounce` |
+| Repository | `zero-bounce-python-sdk-setup` |
+| Workflow name | `publish.yml` |
+| Environment name | `release` |
+
+Create GitHub environment **`release`** on the repo (Settings → Environments).
+
+**Option B — API token fallback**
+
+Add repo secret **`PYPI_API_TOKEN`** (PyPI project token for `zerobouncesdk`).
+
+### Release steps
+
+1. Bump `version` in `pyproject.toml`, commit, tag (`v2.2.2`), and push the tag.
+2. **Actions → Publish → Run workflow** and enter the tag, or:
+
+```bash
+gh workflow run publish.yml --repo zerobounce/zero-bounce-python-sdk-setup -f tag=v2.2.2
+```
+
+The workflow validates the tag, runs tests, builds sdist/wheel, publishes to PyPI, and creates a GitHub release if missing.
+
+See also the [sdk-docs (PyPI)](../sdk-docs/pypi/) guide.
