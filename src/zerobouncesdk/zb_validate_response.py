@@ -46,6 +46,9 @@ class ZBValidateResponse(ZBResponse):
     smtp_provider: str = None
     """The SMTP Provider of the email or [null] [BETA]."""
 
+    catchall_domain: bool = None
+    """[true/false or null] Is the domain name a catch-all (the domain email server responds with valid to any SMTP checks and emailing to an invalid might not bounce)?"""
+
     firstname: str = None
     """The first name of the owner of the email when available or [null]."""
 
