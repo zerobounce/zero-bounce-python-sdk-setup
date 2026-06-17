@@ -268,7 +268,7 @@ class ZeroBounce:
             ],
         }
         return self._post(
-            f"{self.BULK_BASE_URL}/validatebatch",
+            f"{self._base_url}/validatebatch",
             ZBValidateBatchResponse,
             json=json)
 
