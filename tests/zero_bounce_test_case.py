@@ -187,6 +187,20 @@ class ZeroBounceTestCase(BaseTestCase):
         self.assertEqual(response.email_batch[1].sub_status, ZBValidateSubStatus.mailbox_not_found)
         self.assertEqual(len(response.errors), 0)
 
+    def test_validate_batch_uses_api_base_url(self):
+        self.requests_mock.post.return_value = MockResponse({"email_batch": [], "errors": []})
+        self.zero_bounce_client.validate_batch([ZBValidateBatchElement("a@b.com")])
+        url = self.requests_mock.post.call_args[0][0]
+        self.assertEqual(url, "https://api.zerobounce.net/v2/validatebatch")
+        self.assertNotIn("bulkapi", url)
+
+    def test_validate_batch_uses_custom_base_url(self):
+        client = ZeroBounce("dummy_key", base_url="https://api-eu.zerobounce.net/v2/")
+        self.requests_mock.post.return_value = MockResponse({"email_batch": [], "errors": []})
+        client.validate_batch([ZBValidateBatchElement("a@b.com")])
+        url = self.requests_mock.post.call_args[0][0]
+        self.assertEqual(url, "https://api-eu.zerobounce.net/v2/validatebatch")
+
     def test_validate_batch_handles_missing_email_batch_and_errors_keys(self):
         """API may omit email_batch or errors keys; client should not crash."""
         self.requests_mock.post.return_value = MockResponse({})
