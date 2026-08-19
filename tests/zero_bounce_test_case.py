@@ -31,6 +31,19 @@ class ZeroBounceTestCase(BaseTestCase):
         expected_error = "Empty parameter: api_key"
         self.assertEqual(str(cm.exception), expected_error)
 
+    def test_init_rejects_http_base_url(self):
+        with self.assertRaises(ZBClientException) as cm:
+            ZeroBounce("dummy_key", base_url="http://evil.example/v2")
+        self.assertIn("https://", str(cm.exception))
+
+    def test_default_http_timeout(self):
+        self.requests_mock.get.return_value = MockResponse({'a': 'b'})
+        client = ZeroBounce("dummy_key")
+        client._get("https://example.com", ZBResponse)
+        self.requests_mock.get.assert_called_with(
+            'https://example.com', params={'api_key': 'dummy_key'}, timeout=120.0
+        )
+
     def test_credits_invalid_key(self):
         self.requests_mock.get.return_value = MockResponse({
             "Credits": "-1",

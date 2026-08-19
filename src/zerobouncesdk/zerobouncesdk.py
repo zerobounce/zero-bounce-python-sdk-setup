@@ -32,6 +32,13 @@ class ZeroBounce:
 
     BULK_BASE_URL = "https://bulkapi.zerobounce.net/v2"
     SCORING_BASE_URL = "https://bulkapi.zerobounce.net/v2/scoring"
+    DEFAULT_HTTP_TIMEOUT_S = 120.0
+
+    @staticmethod
+    def _require_https_url(url: str) -> str:
+        if not url.lower().startswith("https://"):
+            raise ZBClientException("base_url must be an https:// URL")
+        return url.rstrip("/")
 
     def __init__(self, api_key: str, base_url: Optional[Union[ZBApiUrl, str]] = None, timeout: timedelta | None = None):
         """Initialize the ZeroBounce client.
@@ -60,14 +67,16 @@ class ZeroBounce:
         elif isinstance(base_url, ZBApiUrl):
             self._base_url = base_url.value
         elif isinstance(base_url, str):
-            self._base_url = base_url
+            self._base_url = self._require_https_url(base_url)
         else:
             raise ZBClientException(f"Invalid base_url type: {type(base_url)}. Expected ZBApiUrl, str, or None.")
         
         # Remove trailing slash if present to maintain consistent URL construction
         self._base_url = self._base_url.rstrip('/')
 
-        self._timeout_s: float | None = None if timeout is None else timeout.total_seconds()
+        self._timeout_s: float = (
+            self.DEFAULT_HTTP_TIMEOUT_S if timeout is None else timeout.total_seconds()
+        )
 
     @staticmethod
     def get_file_json_indicates_error(body: str) -> bool:
