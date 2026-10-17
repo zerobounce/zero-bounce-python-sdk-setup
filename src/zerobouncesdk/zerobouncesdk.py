@@ -232,7 +232,24 @@ class ZeroBounce:
             f"{self._base_url}/activity", ZBGetActivityResponse, params={"email": email}
         )
 
-    def validate(self, email: str, ip_address: str = None):
+    @staticmethod
+    def _check_validate_timeout(timeout: Optional[int]) -> None:
+        if timeout is not None and (timeout < 3 or timeout > 60):
+            raise ZBClientException("Invalid parameter: timeout (must be between 3 and 60 seconds)")
+
+    @staticmethod
+    def _check_validate_batch_timeout(timeout: Optional[int]) -> None:
+        if timeout is not None and (timeout < 10 or timeout > 120):
+            raise ZBClientException("Invalid parameter: timeout (must be between 10 and 120 seconds)")
+
+    def validate(
+        self,
+        email: str,
+        ip_address: str = None,
+        timeout: Optional[int] = None,
+        activity_data: Optional[bool] = None,
+        verify_plus: Optional[bool] = None,
+    ):
         """Validates the given email address.
 
         Parameters
@@ -241,33 +258,61 @@ class ZeroBounce:
             The email address you want to validate
         ip_address: str or None
             The IP Address the email signed up from (Can be blank)
+        timeout: int or None
+            Validation timeout in seconds (3-60). Optional.
+        activity_data: bool or None
+            When set, sends ``activity_data`` query parameter.
+        verify_plus: bool or None
+            When set, sends ``verify_plus`` query parameter.
 
         Raises
         ------
         ZBApiException
+        ZBClientException
 
         Returns
         -------
         response: ZBValidateResponse
             Returns a ZBValidateResponse object if the request was successful
         """
+        self._check_validate_timeout(timeout)
+
+        params = {
+            "email": email,
+            "ip_address": ip_address,
+        }
+        if timeout is not None:
+            params["timeout"] = timeout
+        if activity_data is not None:
+            params["activity_data"] = "true" if activity_data else "false"
+        if verify_plus is not None:
+            params["verify_plus"] = "true" if verify_plus else "false"
 
         return self._get(
             f"{self._base_url}/validate",
             ZBValidateResponse,
-            params={
-                "email": email,
-                "ip_address": ip_address,
-            },
+            params=params,
         )
 
-    def validate_batch(self, email_batch: List[ZBValidateBatchElement]):
+    def validate_batch(
+        self,
+        email_batch: List[ZBValidateBatchElement],
+        timeout: Optional[int] = None,
+        activity_data: Optional[bool] = None,
+        verify_plus: Optional[bool] = None,
+    ):
         """Allows you to send us batches up to 100 emails at a time.
 
         Parameters
         ----------
         email_batch: List[ZBValidateBatchElement]
             Array of ZBValidateBatchElement
+        timeout: int or None
+            Batch validation timeout in seconds (10-120). Optional.
+        activity_data: bool or None
+            When set, includes activity data on each result.
+        verify_plus: bool or None
+            When true, uses Verify+ for validation.
 
         Raises
         ------
@@ -281,17 +326,24 @@ class ZeroBounce:
         """
         if not email_batch:
             raise ZBClientException("Empty parameter: email_batch")
+        self._check_validate_batch_timeout(timeout)
 
-        json={
+        payload = {
             "api_key": self._api_key,
             "email_batch": [
                 batch_element.to_json() for batch_element in email_batch
             ],
         }
+        if timeout is not None:
+            payload["timeout"] = timeout
+        if activity_data is not None:
+            payload["activity_data"] = activity_data
+        if verify_plus is not None:
+            payload["verify_plus"] = verify_plus
         return self._post(
             f"{self._base_url}/validatebatch",
             ZBValidateBatchResponse,
-            json=json)
+            json=payload)
 
     def _send_file(
         self,

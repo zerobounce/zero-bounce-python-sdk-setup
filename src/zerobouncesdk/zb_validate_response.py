@@ -34,6 +34,12 @@ class ZBValidateResponse(ZBResponse):
     domain_age_days: str = None
     """Age of the email domain in days or [null]."""
 
+    active_in_days: str = None
+    """Last activity bucket when activity_data was requested (e.g. 30, 365+)."""
+
+    active_first_seen: str = None
+    """First date activity was detected (YYYY-MM-DD)."""
+
     free_email: bool = False
     """[true/false] If the email comes from a free provider."""
 

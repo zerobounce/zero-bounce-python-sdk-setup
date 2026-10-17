@@ -112,6 +112,23 @@ class ZeroBounceTestCase(BaseTestCase):
         self.assertEqual(response.sub_status, ZBValidateSubStatus.mailbox_not_found)
         self.assertEqual(response.processed_at, datetime(2023, 3, 28, 12, 30, 18, 990000))
 
+    def test_validate_sends_optional_query_params(self):
+        self.requests_mock.get.return_value = MockResponse({"address": "a@b.com", "status": "valid"})
+        self.zero_bounce_client.validate(
+            "a@b.com",
+            timeout=10,
+            activity_data=True,
+            verify_plus=False,
+        )
+        params = self.requests_mock.get.call_args[1]["params"]
+        self.assertEqual(params["timeout"], 10)
+        self.assertEqual(params["activity_data"], "true")
+        self.assertEqual(params["verify_plus"], "false")
+
+    def test_validate_timeout_out_of_range(self):
+        with self.assertRaises(ZBClientException):
+            self.zero_bounce_client.validate("a@b.com", timeout=2)
+
     def test_response_sub_status_accept_all(self):
         self.requests_mock.get.return_value = MockResponse({
             "address": "none@example.com",
@@ -199,6 +216,23 @@ class ZeroBounceTestCase(BaseTestCase):
         self.assertEqual(response.email_batch[1].status, ZBValidateStatus.invalid)
         self.assertEqual(response.email_batch[1].sub_status, ZBValidateSubStatus.mailbox_not_found)
         self.assertEqual(len(response.errors), 0)
+
+    def test_validate_batch_sends_optional_body_fields(self):
+        self.requests_mock.post.return_value = MockResponse({"email_batch": [], "errors": []})
+        self.zero_bounce_client.validate_batch(
+            [ZBValidateBatchElement("a@b.com")],
+            timeout=60,
+            activity_data=True,
+            verify_plus=True,
+        )
+        payload = self.requests_mock.post.call_args[1]["json"]
+        self.assertEqual(payload["timeout"], 60)
+        self.assertTrue(payload["activity_data"])
+        self.assertTrue(payload["verify_plus"])
+
+    def test_validate_batch_timeout_out_of_range(self):
+        with self.assertRaises(ZBClientException):
+            self.zero_bounce_client.validate_batch([ZBValidateBatchElement("a@b.com")], timeout=9)
 
     def test_validate_batch_uses_api_base_url(self):
         self.requests_mock.post.return_value = MockResponse({"email_batch": [], "errors": []})
