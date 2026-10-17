@@ -98,6 +98,45 @@ class ZeroBounceTestCase(BaseTestCase):
         self.assertTrue(response.found)
         self.assertEqual(response.active_in_days, "180")
 
+    def test_score_email_get(self):
+        self.requests_mock.get.return_value = MockResponse({
+            "email": "mark@gmail.com",
+            "score": 10,
+        })
+
+        response = self.zero_bounce_client.score_email("mark@gmail.com")
+        self.assertEqual(response.email, "mark@gmail.com")
+        self.assertEqual(response.score, 10)
+        self.requests_mock.get.assert_called_with(
+            f"{self.zero_bounce_client._base_url}/scoring",
+            params={"api_key": "dummy_key", "email": "mark@gmail.com"},
+            timeout=120.0,
+        )
+
+    def test_score_email_post(self):
+        self.requests_mock.post.return_value = MockResponse({
+            "email": "mark@gmail.com",
+            "score": 10,
+        })
+
+        response = self.zero_bounce_client.score_email("mark@gmail.com", use_post=True)
+        self.assertEqual(response.email, "mark@gmail.com")
+        self.assertEqual(response.score, 10)
+        self.requests_mock.post.assert_called_with(
+            f"{self.zero_bounce_client._base_url}/scoring",
+            data={"api_key": "dummy_key", "email": "mark@gmail.com"},
+            timeout=120.0,
+        )
+
+    def test_score_email_api_error(self):
+        self.requests_mock.get.return_value = MockResponse({
+            "error": "Please provide a valid email address",
+        })
+
+        with self.assertRaises(ZBApiException) as cm:
+            self.zero_bounce_client.score_email("not-an-email")
+        self.assertEqual(str(cm.exception), "Please provide a valid email address")
+
     def test_validate_valid(self):
         self.requests_mock.get.return_value = MockResponse({
             "address": "invalid@example.com",

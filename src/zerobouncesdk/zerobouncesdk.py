@@ -16,6 +16,7 @@ from . import (
     ZBGetCreditsResponse,
     ZBGetApiUsageResponse,
     ZBGetActivityResponse,
+    ZBScoreEmailResponse,
     ZBValidateResponse,
     ZBValidateBatchElement,
     ZBValidateBatchResponse,
@@ -165,6 +166,26 @@ class ZeroBounce:
 
         return response_class(json_response)
 
+    def _post_form(self, url, response_class, data=None):
+        if not data:
+            data = {}
+        data = dict(data)
+        data["api_key"] = self._api_key
+        try:
+            response = requests.post(url, data=data, timeout=self._timeout_s)
+        except RequestException as e:
+            raise type(e)(self._redact(e)) from None
+
+        try:
+            json_response = response.json()
+        except ValueError as e:
+            raise ZBApiException from e
+
+        error = json_response.pop("error", None)
+        if error:
+            raise ZBApiException(error)
+        return response_class(json_response)
+
     def get_credits(self):
         """Tells you how many credits you have left on your account.
         It's simple, fast and easy to use.
@@ -230,6 +251,37 @@ class ZeroBounce:
 
         return self._get(
             f"{self._base_url}/activity", ZBGetActivityResponse, params={"email": email}
+        )
+
+    def score_email(self, email: str, use_post: bool = False):
+        """Real-time AI scoring for a single email (GET or POST /scoring).
+
+        Parameters
+        ----------
+        email: str
+            The email address to score
+        use_post: bool
+            When True, sends ``api_key`` and ``email`` as form-encoded POST body.
+
+        Raises
+        ------
+        ZBApiException
+
+        Returns
+        -------
+        response: ZBScoreEmailResponse
+        """
+
+        if use_post:
+            return self._post_form(
+                f"{self._base_url}/scoring",
+                ZBScoreEmailResponse,
+                data={"email": email},
+            )
+        return self._get(
+            f"{self._base_url}/scoring",
+            ZBScoreEmailResponse,
+            params={"email": email},
         )
 
     @staticmethod

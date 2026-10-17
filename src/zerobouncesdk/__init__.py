@@ -6,6 +6,7 @@ from .zb_exceptions import ZBException, ZBApiException, ZBClientException
 from .zb_get_credits_response import ZBGetCreditsResponse
 from .zb_get_api_usage_response import ZBGetApiUsageResponse
 from .zb_get_activity_response import ZBGetActivityResponse
+from .zb_score_email_response import ZBScoreEmailResponse
 from .zb_validate_status import ZBValidateStatus
 from .zb_validate_sub_status import ZBValidateSubStatus
 from .zb_validate_response import ZBValidateResponse
