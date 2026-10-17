@@ -34,6 +34,9 @@ class ZeroBounce:
     """The ZeroBounce main class. All the requests are implemented here."""
 
     BULK_BASE_URL = "https://bulkapi.zerobounce.net/v2"
+    BULK_ROOT_URL = "https://bulkapi.zerobounce.net"
+    EMAIL_FINDER_BASE_URL = "https://bulkapi.zerobounce.net/email-finder"
+    DOMAIN_SEARCH_BASE_URL = "https://bulkapi.zerobounce.net/domain-search"
     SCORING_BASE_URL = "https://bulkapi.zerobounce.net/v2/scoring"
     DEFAULT_HTTP_TIMEOUT_S = 120.0
 
@@ -185,6 +188,107 @@ class ZeroBounce:
         if error:
             raise ZBApiException(error)
         return response_class(json_response)
+
+    def _request_json(self, method: str, url: str, *, params=None, data=None, files=None):
+        if params is None:
+            params = {}
+        if "api_key" not in params and (data is None or "api_key" not in data):
+            params = dict(params)
+            params["api_key"] = self._api_key
+        try:
+            response = requests.request(
+                method,
+                url,
+                params=params,
+                data=data,
+                files=files,
+                timeout=self._timeout_s,
+            )
+        except RequestException as e:
+            raise type(e)(self._redact(e)) from None
+        try:
+            return response.json()
+        except ValueError as e:
+            raise ZBApiException(
+                f"Request not processed successfully. Status code {response.status_code}"
+            ) from e
+
+    def _send_bulk_root_multipart(
+        self, url: str, file_path: str, fields: dict
+    ) -> ZBSendFileResponse:
+        data = dict(fields)
+        data["api_key"] = self._api_key
+        with open(file_path, "rb") as file:
+            files = {"file": (os.path.basename(file_path), file, "text/csv")}
+            return self._post(url, ZBSendFileResponse, data=data, files=files)
+
+    def _send_bulk_root_multipart_stream(
+        self, url: str, file_stream: BinaryIO, file_name: str, fields: dict
+    ) -> ZBSendFileResponse:
+        data = dict(fields)
+        data["api_key"] = self._api_key
+        files = {"file": (file_name, file_stream, "text/csv")}
+        return self._post(url, ZBSendFileResponse, data=data, files=files)
+
+    def _bulk_root_file_status(self, base_url: str, file_id: str) -> ZBFileStatusResponse:
+        if not file_id.strip():
+            raise ZBClientException("Empty parameter: file_id")
+        return self._get(
+            f"{base_url}/filestatus",
+            ZBFileStatusResponse,
+            params={"file_id": file_id},
+        )
+
+    def _bulk_root_get_file(
+        self,
+        base_url: str,
+        file_id: str,
+        download_path: str,
+    ) -> ZBGetFileResponse:
+        if not file_id.strip():
+            raise ZBClientException("Empty parameter: file_id")
+        params = {"api_key": self._api_key, "file_id": file_id}
+        try:
+            response = requests.get(
+                f"{base_url}/getfile",
+                params=params,
+                timeout=self._timeout_s,
+            )
+        except RequestException as e:
+            raise type(e)(self._redact(e)) from None
+        body_bytes = response.content or b""
+        body_str = body_bytes.decode("utf-8", errors="replace")
+        content_type = response.headers.get("Content-Type") or ""
+        if response.status_code > 299:
+            if body_str.lstrip().startswith("{"):
+                raise ZBApiException(self._redact(self._format_get_file_error_message(body_str)))
+            raise ZBApiException(self._redact(body_str or f"HTTP {response.status_code}"))
+        if self._should_treat_get_file_body_as_error(body_str, content_type):
+            raise ZBApiException(self._redact(self._format_get_file_error_message(body_str)))
+        dirname = os.path.dirname(download_path)
+        if dirname:
+            os.makedirs(dirname, exist_ok=True)
+        with open(download_path, "wb") as f:
+            f.write(body_bytes)
+        return ZBGetFileResponse({"local_file_path": download_path})
+
+    def _bulk_root_delete_file(self, base_url: str, file_id: str) -> ZBDeleteFileResponse:
+        if not file_id.strip():
+            raise ZBClientException("Empty parameter: file_id")
+        return self._get(
+            f"{base_url}/deletefile",
+            ZBDeleteFileResponse,
+            params={"file_id": file_id},
+        )
+
+    def _post_bulk_root_form(self, path: str, fields: dict) -> ZBSendFileResponse:
+        data = dict(fields)
+        data["api_key"] = self._api_key
+        return self._post(
+            f"{self.BULK_ROOT_URL}{path}",
+            ZBSendFileResponse,
+            data=data,
+        )
 
     def get_credits(self):
         """Tells you how many credits you have left on your account.
@@ -862,6 +966,287 @@ class ZeroBounce:
         """
 
         return self._delete_file(True, file_id)
+
+    # Priority 3 — bulk email finder (bulkapi …/email-finder/*)
+
+    def send_email_finder_file(
+        self,
+        file_path: str,
+        domain_column: int,
+        first_name_column: int = None,
+        last_name_column: int = None,
+        middle_name_column: int = None,
+        full_name_column: int = None,
+        has_header_row: bool = False,
+    ) -> ZBSendFileResponse:
+        if not domain_column:
+            raise ZBClientException("Empty parameter: domain_column")
+        fields = {"domain_column": domain_column, "has_header_row": has_header_row}
+        if first_name_column is not None:
+            fields["first_name_column"] = first_name_column
+        if last_name_column is not None:
+            fields["last_name_column"] = last_name_column
+        if middle_name_column is not None:
+            fields["middle_name_column"] = middle_name_column
+        if full_name_column is not None:
+            fields["full_name_column"] = full_name_column
+        return self._send_bulk_root_multipart(
+            f"{self.EMAIL_FINDER_BASE_URL}/sendfile", file_path, fields
+        )
+
+    def send_email_finder_file_stream(
+        self,
+        file_stream: BinaryIO,
+        file_name: str,
+        domain_column: int,
+        first_name_column: int = None,
+        last_name_column: int = None,
+        middle_name_column: int = None,
+        full_name_column: int = None,
+        has_header_row: bool = False,
+    ) -> ZBSendFileResponse:
+        if not domain_column:
+            raise ZBClientException("Empty parameter: domain_column")
+        fields = {"domain_column": domain_column, "has_header_row": has_header_row}
+        if first_name_column is not None:
+            fields["first_name_column"] = first_name_column
+        if last_name_column is not None:
+            fields["last_name_column"] = last_name_column
+        if middle_name_column is not None:
+            fields["middle_name_column"] = middle_name_column
+        if full_name_column is not None:
+            fields["full_name_column"] = full_name_column
+        return self._send_bulk_root_multipart_stream(
+            f"{self.EMAIL_FINDER_BASE_URL}/sendfile",
+            file_stream,
+            file_name,
+            fields,
+        )
+
+    def email_finder_file_status(self, file_id: str) -> ZBFileStatusResponse:
+        return self._bulk_root_file_status(self.EMAIL_FINDER_BASE_URL, file_id)
+
+    def email_finder_get_file(self, file_id: str, download_path: str) -> ZBGetFileResponse:
+        return self._bulk_root_get_file(self.EMAIL_FINDER_BASE_URL, file_id, download_path)
+
+    def email_finder_delete_file(self, file_id: str) -> ZBDeleteFileResponse:
+        return self._bulk_root_delete_file(self.EMAIL_FINDER_BASE_URL, file_id)
+
+    # Priority 3 — bulk domain search (bulkapi …/domain-search/*)
+
+    def send_domain_search_file(
+        self,
+        file_path: str,
+        domain_column: int,
+        has_header_row: bool = False,
+    ) -> ZBSendFileResponse:
+        if not domain_column:
+            raise ZBClientException("Empty parameter: domain_column")
+        return self._send_bulk_root_multipart(
+            f"{self.DOMAIN_SEARCH_BASE_URL}/sendfile",
+            file_path,
+            {"domain_column": domain_column, "has_header_row": has_header_row},
+        )
+
+    def send_domain_search_file_stream(
+        self,
+        file_stream: BinaryIO,
+        file_name: str,
+        domain_column: int,
+        has_header_row: bool = False,
+    ) -> ZBSendFileResponse:
+        if not domain_column:
+            raise ZBClientException("Empty parameter: domain_column")
+        return self._send_bulk_root_multipart_stream(
+            f"{self.DOMAIN_SEARCH_BASE_URL}/sendfile",
+            file_stream,
+            file_name,
+            {"domain_column": domain_column, "has_header_row": has_header_row},
+        )
+
+    def domain_search_file_status(self, file_id: str) -> ZBFileStatusResponse:
+        return self._bulk_root_file_status(self.DOMAIN_SEARCH_BASE_URL, file_id)
+
+    def domain_search_get_file(self, file_id: str, download_path: str) -> ZBGetFileResponse:
+        return self._bulk_root_get_file(self.DOMAIN_SEARCH_BASE_URL, file_id, download_path)
+
+    def domain_search_delete_file(self, file_id: str) -> ZBDeleteFileResponse:
+        return self._bulk_root_delete_file(self.DOMAIN_SEARCH_BASE_URL, file_id)
+
+    # Priority 3 — list evaluator
+
+    def send_list_evaluator_file(
+        self, file_path: str, email_address_column: int
+    ) -> ZBSendFileResponse:
+        if not email_address_column:
+            raise ZBClientException("Empty parameter: email_address_column")
+        data = {
+            "api_key": self._api_key,
+            "email_address_column": email_address_column,
+        }
+        with open(file_path, "rb") as file:
+            files = {"file": (os.path.basename(file_path), file, "text/csv")}
+            return self._post(
+                f"{self.BULK_BASE_URL}/listevaluator/",
+                ZBSendFileResponse,
+                data=data,
+                files=files,
+            )
+
+    def send_list_evaluator_file_stream(
+        self,
+        file_stream: BinaryIO,
+        file_name: str,
+        email_address_column: int,
+    ) -> ZBSendFileResponse:
+        if not email_address_column:
+            raise ZBClientException("Empty parameter: email_address_column")
+        data = {
+            "api_key": self._api_key,
+            "email_address_column": email_address_column,
+        }
+        files = {"file": (file_name, file_stream, "text/csv")}
+        return self._post(
+            f"{self.BULK_BASE_URL}/listevaluator/",
+            ZBSendFileResponse,
+            data=data,
+            files=files,
+        )
+
+    def get_list_evaluator_result(self, file_id: str):
+        if not file_id.strip():
+            raise ZBClientException("Empty parameter: file_id")
+        return self._request_json(
+            "GET",
+            f"{self.BULK_BASE_URL}/listevaluator/{file_id}/",
+            params={"api_key": self._api_key},
+        )
+
+    def send_evaluated_file(self, file_path: str) -> ZBSendFileResponse:
+        data = {"api_key": self._api_key}
+        with open(file_path, "rb") as file:
+            files = {"file": (os.path.basename(file_path), file, "text/csv")}
+            return self._post(
+                f"{self.BULK_BASE_URL}/send-evaluated-file/",
+                ZBSendFileResponse,
+                data=data,
+                files=files,
+            )
+
+    # Priority 3 — custom filters (main API)
+
+    def add_filter(self, rule: str, target: str, value: str):
+        if not rule or not target or not value:
+            raise ZBClientException("Empty parameter: rule, target, and value are required")
+        return self._request_json(
+            "POST",
+            f"{self._base_url}/filters/add",
+            data={
+                "api_key": self._api_key,
+                "rule": rule,
+                "target": target,
+                "value": value,
+            },
+        )
+
+    def list_filters(self, use_post: bool = False):
+        if use_post:
+            return self._request_json(
+                "POST",
+                f"{self._base_url}/filters/list",
+                data={"api_key": self._api_key},
+            )
+        return self._request_json(
+            "GET",
+            f"{self._base_url}/filters/list",
+            params={"api_key": self._api_key},
+        )
+
+    def delete_filter(self, rule: str, target: str, value: str):
+        if not rule or not target or not value:
+            raise ZBClientException("Empty parameter: rule, target, and value are required")
+        return self._request_json(
+            "POST",
+            f"{self._base_url}/filters/delete",
+            data={
+                "api_key": self._api_key,
+                "rule": rule,
+                "target": target,
+                "value": value,
+            },
+        )
+
+    # Priority 3 — S3 bulk helpers (bulkapi root)
+
+    def validate_s3file(
+        self,
+        file_name: str,
+        has_header_row: bool = None,
+        remove_duplicates: bool = None,
+        remove_duplicate: bool = None,
+        email_address_column: int = None,
+        return_url: str = None,
+        first_name_column: int = None,
+        last_name_column: int = None,
+        gender_column: int = None,
+        ip_address_column: int = None,
+        allow_phase_2: Optional[bool] = None,
+    ) -> ZBSendFileResponse:
+        if not file_name or not file_name.strip():
+            raise ZBClientException("Empty parameter: file_name")
+        fields = {"file_name": file_name}
+        if has_header_row is not None:
+            fields["has_header_row"] = has_header_row
+        if remove_duplicates is not None:
+            fields["remove_duplicates"] = remove_duplicates
+        if remove_duplicate is not None:
+            fields["remove_duplicate"] = remove_duplicate
+        if email_address_column is not None:
+            fields["email_address_column"] = email_address_column
+        if return_url is not None:
+            fields["return_url"] = return_url
+        if first_name_column is not None:
+            fields["first_name_column"] = first_name_column
+        if last_name_column is not None:
+            fields["last_name_column"] = last_name_column
+        if gender_column is not None:
+            fields["gender_column"] = gender_column
+        if ip_address_column is not None:
+            fields["ip_address_column"] = ip_address_column
+        if allow_phase_2 is not None:
+            fields["allow_phase_2"] = "true" if allow_phase_2 else "false"
+        return self._post_bulk_root_form("/validateS3file", fields)
+
+    def score_s3file(
+        self,
+        file_name: str,
+        has_header_row: bool = None,
+        remove_duplicates: bool = None,
+        remove_duplicate: bool = None,
+        email_address_column: int = None,
+    ) -> ZBSendFileResponse:
+        if not file_name or not file_name.strip():
+            raise ZBClientException("Empty parameter: file_name")
+        fields = {"file_name": file_name}
+        if has_header_row is not None:
+            fields["has_header_row"] = has_header_row
+        if remove_duplicates is not None:
+            fields["remove_duplicates"] = remove_duplicates
+        if remove_duplicate is not None:
+            fields["remove_duplicate"] = remove_duplicate
+        if email_address_column is not None:
+            fields["email_address_column"] = email_address_column
+        return self._post_bulk_root_form("/scoreS3file", fields)
+
+    def export_s3file(self, file_id: str, export_bucket: str) -> ZBSendFileResponse:
+        if not file_id.strip():
+            raise ZBClientException("Empty parameter: file_id")
+        if not export_bucket or not export_bucket.strip():
+            raise ZBClientException("Empty parameter: export_bucket")
+        return self._post_bulk_root_form(
+            "/exportS3file",
+            {"file_id": file_id, "export_bucket": export_bucket},
+        )
 
     def guess_format(
         self,

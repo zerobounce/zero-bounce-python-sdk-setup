@@ -1,4 +1,5 @@
 from datetime import date, datetime, timedelta
+from io import BytesIO
 from pathlib import Path
 
 
@@ -718,3 +719,41 @@ class ZeroBounceTestCase(BaseTestCase):
         response = client._post("https://example.com", ZBResponse)
         self.assertEqual(response.a, 'b')
         self.requests_mock.post.assert_called_with('https://example.com', data=None, json=None, files=None, timeout=0.123)
+
+    def test_send_email_finder_file_uses_bulk_email_finder_url(self):
+        self.requests_mock.post.return_value = MockResponse({
+            "success": True,
+            "file_id": "ef-1",
+        })
+        stream = BytesIO(b"domain,name\nacme.com,Jane")
+        self.zero_bounce_client.send_email_finder_file_stream(
+            stream, "finder.csv", domain_column=1
+        )
+        url = self.requests_mock.post.call_args[0][0]
+        self.assertEqual(url, "https://bulkapi.zerobounce.net/email-finder/sendfile")
+
+    def test_add_filter_posts_to_main_api(self):
+        self.requests_mock.request.return_value = MockResponse(
+            {"Message": "Filter successfully added"}
+        )
+        self.zero_bounce_client.add_filter("allow", "domain", "example.com")
+        method, url = self.requests_mock.request.call_args[0][:2]
+        self.assertEqual(method, "POST")
+        self.assertTrue(url.endswith("/filters/add"))
+        data = self.requests_mock.request.call_args[1]["data"]
+        self.assertEqual(data["rule"], "allow")
+
+    def test_validate_s3file_posts_to_bulk_root(self):
+        self.requests_mock.post.return_value = MockResponse({"success": True, "file_id": "s3-1"})
+        self.zero_bounce_client.validate_s3file(
+            "lists/jan.csv", has_header_row=True, remove_duplicates=True
+        )
+        url = self.requests_mock.post.call_args[0][0]
+        self.assertEqual(url, "https://bulkapi.zerobounce.net/validateS3file")
+
+    def test_get_list_evaluator_result_url(self):
+        self.requests_mock.request.return_value = MockResponse({"file_status": "Complete"})
+        self.zero_bounce_client.get_list_evaluator_result("abc-123")
+        method, url = self.requests_mock.request.call_args[0][:2]
+        self.assertEqual(method, "GET")
+        self.assertIn("/v2/listevaluator/abc-123/", url)
