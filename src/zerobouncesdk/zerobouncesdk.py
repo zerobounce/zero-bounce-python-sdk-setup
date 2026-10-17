@@ -405,6 +405,7 @@ class ZeroBounce:
         timeout: Optional[int] = None,
         activity_data: Optional[bool] = None,
         verify_plus: Optional[bool] = None,
+        use_post: bool = False,
     ):
         """Validates the given email address.
 
@@ -420,6 +421,8 @@ class ZeroBounce:
             When set, sends ``activity_data`` query parameter.
         verify_plus: bool or None
             When set, sends ``verify_plus`` query parameter.
+        use_post: bool
+            When True, sends parameters as form-encoded POST body.
 
         Raises
         ------
@@ -444,6 +447,12 @@ class ZeroBounce:
         if verify_plus is not None:
             params["verify_plus"] = "true" if verify_plus else "false"
 
+        if use_post:
+            return self._post_form(
+                f"{self._base_url}/validate",
+                ZBValidateResponse,
+                data=params,
+            )
         return self._get(
             f"{self._base_url}/validate",
             ZBValidateResponse,
@@ -1177,6 +1186,28 @@ class ZeroBounce:
         )
 
     # Priority 3 — S3 bulk helpers (bulkapi root)
+
+    def list_s3files(
+        self,
+        bucket: str = None,
+        search: str = None,
+    ):
+        """List S3 bucket files available for validation or scoring (GET /listS3files)."""
+        params = {}
+        if bucket is not None:
+            params["bucket"] = bucket
+        if search is not None:
+            params["search"] = search
+        payload = self._request_json(
+            "GET",
+            f"{self.BULK_ROOT_URL}/listS3files",
+            params=params,
+        )
+        if isinstance(payload, dict) and payload.get("error"):
+            raise ZBApiException(payload["error"])
+        if not isinstance(payload, list):
+            raise ZBApiException("Unexpected listS3files response")
+        return payload
 
     def validate_s3file(
         self,
