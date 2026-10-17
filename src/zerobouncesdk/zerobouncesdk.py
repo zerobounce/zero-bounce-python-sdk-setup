@@ -3,8 +3,10 @@ import warnings
 from datetime import date, timedelta
 import os
 from typing import BinaryIO, List, Optional, Union
+from urllib.parse import quote_plus
 
 import requests
+from requests.exceptions import RequestException
 
 from .zb_get_file_options import ZBGetFileOptions
 from . import (
@@ -128,11 +130,21 @@ class ZeroBounce:
             return True
         return ZeroBounce.get_file_json_indicates_error(body)
 
+    def _redact(self, text) -> str:
+        """Mask the API key in text that can end up in exception messages or logs."""
+        text = str(text)
+        for secret in (self._api_key, quote_plus(self._api_key)):
+            text = text.replace(secret, "***")
+        return text
+
     def _get(self, url, response_class, params=None):
         if not params:
             params = {}
         params["api_key"] = self._api_key
-        response = requests.get(url, params=params, timeout=self._timeout_s)
+        try:
+            response = requests.get(url, params=params, timeout=self._timeout_s)
+        except RequestException as e:
+            raise type(e)(self._redact(e)) from None
 
         try:
             json_response = response.json()
@@ -606,22 +618,25 @@ class ZeroBounce:
             if not scoring and options.activity_data is not None:
                 params["activity_data"] = "true" if options.activity_data else "false"
 
-        response = requests.get(
-            f"{self.SCORING_BASE_URL if scoring else self.BULK_BASE_URL}/getfile",
-            params=params,
-            timeout=self._timeout_s,
-        )
+        try:
+            response = requests.get(
+                f"{self.SCORING_BASE_URL if scoring else self.BULK_BASE_URL}/getfile",
+                params=params,
+                timeout=self._timeout_s,
+            )
+        except RequestException as e:
+            raise type(e)(self._redact(e)) from None
         body_bytes = response.content or b""
         body_str = body_bytes.decode("utf-8", errors="replace")
         content_type = response.headers.get("Content-Type") or ""
 
         if response.status_code > 299:
             if body_str.lstrip().startswith("{"):
-                raise ZBApiException(self._format_get_file_error_message(body_str))
-            raise ZBApiException(body_str or f"HTTP {response.status_code}")
+                raise ZBApiException(self._redact(self._format_get_file_error_message(body_str)))
+            raise ZBApiException(self._redact(body_str or f"HTTP {response.status_code}"))
 
         if self._should_treat_get_file_body_as_error(body_str, content_type):
-            raise ZBApiException(self._format_get_file_error_message(body_str))
+            raise ZBApiException(self._redact(self._format_get_file_error_message(body_str)))
 
         dirname = os.path.dirname(download_path)
         if dirname:

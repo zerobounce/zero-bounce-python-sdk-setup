@@ -1,4 +1,5 @@
 name: Auto Assign
+# Audit 2026-10-14: pull_request_target — do not checkout the PR head here; configuration-path only.
 
 on:
   pull_request_target:
@@ -16,6 +17,6 @@ jobs:
     name: Auto assign (me only)
     runs-on: ubuntu-latest
     steps:
-      - uses: kentaro-m/auto-assign-action@v2.0.2
+      - uses: kentaro-m/auto-assign-action@0a2c53d3721e4c5cfcce6afd4014aecc337979f6 # v2.0.2
         with:
           configuration-path: ".github/auto_assign.yml"

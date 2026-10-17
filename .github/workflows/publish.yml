@@ -13,15 +13,28 @@ permissions:
 
 jobs:
   validate-tag:
+    outputs:
+      tag_sha: ${{ steps.tag_sha.outputs.sha }}
     name: Validate tag
     runs-on: ubuntu-latest
     steps:
+      - name: Validate tag input
+        env:
+          TAG: ${{ github.event.inputs.tag }}
+        run: |
+          re='^v?[0-9]+\.[0-9]+\.[0-9]+([.+-][0-9A-Za-z.-]+)?$'
+          if [[ ! "$TAG" =~ $re ]]; then
+            echo "Error: the tag input must be a release tag such as v1.2.3."
+            exit 1
+          fi
+
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-          ref: ${{ github.event.inputs.tag }}
+          ref: refs/tags/${{ github.event.inputs.tag }}
 
+          persist-credentials: false
       - name: Verify tag and package version
         run: |
           TAG="${{ github.event.inputs.tag }}"
@@ -29,7 +42,7 @@ jobs:
             echo "Error: Tag is required."
             exit 1
           fi
-          if ! git rev-parse "$TAG" >/dev/null 2>&1; then
+          if ! git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
             echo "Error: Tag '$TAG' does not exist."
             exit 1
           fi
@@ -45,6 +58,14 @@ jobs:
           fi
           echo "Publishing tag: $TAG (zerobouncesdk@$PKG_VERSION)"
 
+      - name: Record tag commit SHA
+        id: tag_sha
+        env:
+          TAG: ${{ github.event.inputs.tag }}
+        run: |
+          SHA=$(git rev-parse "refs/tags/$TAG^{commit}")
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+
   test:
     name: Test
     needs: [validate-tag]
@@ -52,12 +73,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout tag
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.event.inputs.tag }}
-
+          ref: ${{ needs.validate-tag.outputs.tag_sha }}
+          persist-credentials: false
       - name: Set up Python
-        uses: actions/setup-python@v7
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
 
@@ -71,7 +92,7 @@ jobs:
 
   publish:
     name: Build and publish to PyPI
-    needs: [test]
+    needs: [validate-tag, test]
     if: ${{ !cancelled() && !failure() }}
     runs-on: ubuntu-latest
     environment: release
@@ -80,12 +101,12 @@ jobs:
       contents: read
     steps:
       - name: Checkout tag
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.event.inputs.tag }}
-
+          ref: ${{ needs.validate-tag.outputs.tag_sha }}
+          persist-credentials: false
       - name: Set up Python
-        uses: actions/setup-python@v7
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
 
@@ -96,34 +117,35 @@ jobs:
         run: python -m build
 
       - name: Publish to PyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
+        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
         with:
           password: ${{ secrets.PYPI_API_TOKEN }}
 
   release:
     name: Create GitHub Release
-    needs: [publish]
+    needs: [validate-tag, publish]
     if: ${{ !cancelled() && !failure() }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.event.inputs.tag }}
+          ref: ${{ needs.validate-tag.outputs.tag_sha }}
           fetch-depth: 0
 
+          persist-credentials: false
       - name: Create release if missing
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TAG="${{ github.event.inputs.tag }}"
-          if gh release view "$TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             echo "Release $TAG already exists, skipping."
           else
             gh release create "$TAG" \
-              --repo "${{ github.repository }}" \
+              --repo "$GITHUB_REPOSITORY" \
               --title "$TAG" \
               --generate-notes
           fi

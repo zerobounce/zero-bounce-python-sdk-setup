@@ -1,35 +1,40 @@
-# To get started with Dependabot version updates, you'll need to specify which
-# package ecosystems to update and where the package manifests are located.
-# https://docs.github.com/en/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file#versioning-strategy
+# Dependabot: security updates only (no version-update PRs).
+# Grouped security PRs open weekly on Tuesday morning (Europe/Bucharest).
+# Auto-merge: .github/workflows/dependabot-auto-merge.yml (on PR + Tuesday cron).
+# https://docs.github.com/en/code-security/dependabot/dependabot-security-updates
 
 version: 2
 updates:
-  # Keep the Python dependencies up to date
   - package-ecosystem: "pip"
     directory: "/"
     schedule:
-      interval: "weekly"
-      day: "monday"
-    target-branch: "master"
+      interval: weekly
+      day: tuesday
+      time: "06:00"
+      timezone: Europe/Bucharest
+    open-pull-requests-limit: 0
     labels:
+      - "dependabot-security"
       - "python dependencies"
     groups:
-      pip:
-        applies-to: version-updates
+      pip-security:
+        applies-to: security-updates
         patterns:
           - "*"
 
-  # Keep the Github Actions dependencies up to date
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
-      interval: "weekly"
-      day: "monday"
-    target-branch: "master"
+      interval: weekly
+      day: tuesday
+      time: "06:00"
+      timezone: Europe/Bucharest
+    open-pull-requests-limit: 0
     labels:
+      - "dependabot-security"
       - "github dependencies"
     groups:
-      github:
-        applies-to: version-updates
+      github-actions-security:
+        applies-to: security-updates
         patterns:
           - "*"
