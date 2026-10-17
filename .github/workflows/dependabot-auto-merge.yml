@@ -1,0 +1,50 @@
+name: Dependabot security auto-merge
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  schedule:
+    - cron: "0 6 * * 2"
+      timezone: Europe/Bucharest
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  approve-and-queue-merge:
+    runs-on: ubuntu-latest
+    if: >-
+      github.event_name == 'pull_request'
+      && github.event.pull_request.user.login == 'dependabot[bot]'
+    steps:
+      - name: Approve Dependabot pull request
+        run: gh pr review --approve "$PR_URL"
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Enable auto-merge when checks pass
+        run: gh pr merge --auto --merge "$PR_URL"
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  weekly-merge-ready:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule'
+    steps:
+      - name: Approve and queue merge for open Dependabot PRs
+        run: |
+          set -euo pipefail
+          mapfile -t urls < <(gh pr list --author app/dependabot --state open --json url --jq '.[].url')
+          if [ "${#urls[@]}" -eq 0 ]; then
+            echo "No open Dependabot pull requests."
+            exit 0
+          fi
+          for url in "${urls[@]}"; do
+            gh pr review --approve "$url" || true
+            gh pr merge --auto --merge "$url" || true
+          done
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
