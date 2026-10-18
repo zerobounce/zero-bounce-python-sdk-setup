@@ -174,12 +174,12 @@ class ZeroBounceTestCase(BaseTestCase):
         self.assertEqual(data["timeout"], 30)
 
     def test_list_s3files_gets_bulk_root(self):
-        self.requests_mock.get.return_value = MockResponse(
+        self.requests_mock.request.return_value = MockResponse(
             [{"name": "uploads/a.csv", "size": 10, "last_modified": "2024-01-01T00:00:00Z"}]
         )
         result = self.zero_bounce_client.list_s3files(bucket="my-bucket", search="a")
         self.assertEqual(result[0]["name"], "uploads/a.csv")
-        called_url = self.requests_mock.get.call_args[0][0]
+        called_url = self.requests_mock.request.call_args[0][1]
         self.assertIn("bulkapi.zerobounce.net/listS3files", called_url)
 
     def test_validate_timeout_out_of_range(self):
