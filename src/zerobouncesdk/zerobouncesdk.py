@@ -1,4 +1,5 @@
 import json
+import re
 import warnings
 from datetime import date, timedelta
 import os
@@ -28,6 +29,120 @@ from . import (
     ZBFindEmailFormatResponse,
     ZBFindDomainResponse,
 )
+
+
+def _looks_like_html(body: str, content_type: str = "") -> bool:
+    if content_type and "text/html" in content_type.lower():
+        return True
+    sample = (body or "").lstrip()[:2000].lower()
+    return (
+        "<!doctype html" in sample
+        or "<html" in sample
+        or "<head" in sample
+        or "<body" in sample
+    )
+
+
+def _html_title(body: str) -> str:
+    snippet = body[:8000]
+    lower = snippet.lower()
+    start = lower.find("<title")
+    if start < 0:
+        return ""
+    open_end = lower.find(">", start)
+    if open_end < 0:
+        return ""
+    close = lower.find("</title>", open_end)
+    if close < 0:
+        return ""
+    return snippet[open_end + 1:close].strip()
+
+
+def _strip_error_prefix(message: str) -> str:
+    """Collapse a repeated ``Error:`` / ``[Error]:`` prefix and leave a single one."""
+    stripped = message.strip()
+    changed = True
+    while changed:
+        changed = False
+        match = re.match(r"(?i)(?:error:\s*){2,}", stripped)
+        if match:
+            stripped = ("Error: " + stripped[match.end():]).strip()
+            changed = True
+        match = re.match(r"(?i)(?:\[error\]:\s*){2,}", stripped)
+        if match:
+            stripped = ("[Error]: " + stripped[match.end():]).strip()
+            changed = True
+    return stripped
+
+
+def _message_from_body(body: str, status_code: int) -> str:
+    """Turn an HTTP body into a short message. Never return raw HTML or a parser exception."""
+    trimmed = (body or "").strip()
+    if not trimmed:
+        return "Empty response from ZeroBounce (HTTP %s)" % status_code
+    if _looks_like_html(body):
+        title = _html_title(body)
+        if title and "access denied" in title.lower():
+            return "Access denied"
+        if title:
+            return 'ZeroBounce returned an HTML error page ("%s") instead of an API response.' % title
+        return "ZeroBounce returned an HTML error page instead of an API response."
+    if trimmed[0] in "{[":
+        try:
+            parsed = json.loads(trimmed)
+        except ValueError:
+            return "ZeroBounce returned a response that is not valid JSON."
+        if isinstance(parsed, dict):
+            title = parsed.get("title")
+            if isinstance(title, str) and ("Access denied" in title or "1020" in title):
+                has_api_message = False
+                for key in ("error", "message", "error_message"):
+                    value = parsed.get(key)
+                    if isinstance(value, str) and value.strip():
+                        has_api_message = True
+                    elif isinstance(value, list) and value:
+                        has_api_message = True
+                if parsed.get("cloudflare_error") is True or not has_api_message:
+                    return title
+            for key in ("message", "error", "error_message"):
+                value = parsed.get(key)
+                if isinstance(value, str) and value.strip():
+                    return _strip_error_prefix(value)
+                if isinstance(value, list) and value and isinstance(value[0], str) and value[0].strip():
+                    return _strip_error_prefix(value[0])
+        if len(trimmed) > 500:
+            return "ZeroBounce returned an error (HTTP %s)." % status_code
+        return trimmed
+    if len(trimmed) > 1000 or any(char in trimmed for char in "{}[]<>"):
+        return "ZeroBounce returned a response that is not valid JSON."
+    message = _strip_error_prefix(trimmed)
+    if not message:
+        return "Empty response from ZeroBounce (HTTP %s)" % status_code
+    return message
+
+
+def _form_data(data):
+    """Encode booleans as the strings ``true`` and ``false`` for form and multipart bodies.
+
+    ``requests`` would otherwise send a Python bool as ``True`` or ``False``.
+    """
+    if not isinstance(data, dict):
+        return data
+    encoded = {}
+    for key, value in data.items():
+        if isinstance(value, bool):
+            encoded[key] = "true" if value else "false"
+        else:
+            encoded[key] = value
+    return encoded
+
+
+def _response_text(response) -> str:
+    content = getattr(response, "content", None)
+    if isinstance(content, (bytes, bytearray)):
+        return content.decode("utf-8", errors="replace")
+    text = getattr(response, "text", "")
+    return text if isinstance(text, str) else ""
 
 
 class ZeroBounce:
@@ -110,24 +225,6 @@ class ZeroBounce:
         return "success" in o
 
     @staticmethod
-    def _format_get_file_error_message(body: str) -> str:
-        try:
-            o = json.loads(body)
-        except ValueError:
-            return body if body else "Invalid getfile response"
-        if not isinstance(o, dict):
-            return body
-        for k in ("message", "error", "error_message"):
-            v = o.get(k)
-            if not v:
-                continue
-            if isinstance(v, str) and v.strip():
-                return v.strip()
-            if isinstance(v, list) and v and isinstance(v[0], str):
-                return v[0].strip()
-        return body
-
-    @staticmethod
     def _should_treat_get_file_body_as_error(body: str, content_type: str) -> bool:
         ct = content_type.lower()
         if "application/json" in ct:
@@ -141,33 +238,84 @@ class ZeroBounce:
             text = text.replace(secret, "***")
         return text
 
+    def _read_json_payload(self, response):
+        body = _response_text(response)
+        status = getattr(response, "status_code", 0) or 0
+        headers = getattr(response, "headers", None) or {}
+        content_type = headers.get("Content-Type") or headers.get("content-type") or ""
+        if 300 <= status < 400:
+            raise ZBApiException(
+                self._redact("ZeroBounce returned a redirect, which this client does not follow.")
+            )
+        if status > 299 or _looks_like_html(body, content_type) or not body.strip():
+            raise ZBApiException(self._redact(_message_from_body(body, status)))
+        try:
+            payload = response.json()
+        except ValueError:
+            raise ZBApiException(self._redact(_message_from_body(body, status))) from None
+        if isinstance(payload, dict):
+            title = payload.get("title")
+            if isinstance(title, str) and payload.get("cloudflare_error") is True:
+                raise ZBApiException(self._redact(title))
+            error = None
+            for key in ("error", "Error"):
+                if key in payload and payload[key]:
+                    error = payload[key]
+                    break
+            if isinstance(error, str) and error.strip():
+                raise ZBApiException(self._redact(_strip_error_prefix(error)))
+            if error:
+                raise ZBApiException(self._redact(str(error)))
+            success = payload.get("success")
+            failed = success is False or (
+                isinstance(success, str) and success.lower() == "false"
+            )
+            if failed:
+                message = payload.get("message") or payload.get("error_message") or "Request failed"
+                if isinstance(message, list):
+                    message = message[0] if message else "Request failed"
+                text = str(message).strip() or "Request failed"
+                raise ZBApiException(self._redact(_strip_error_prefix(text)))
+        return payload
+
+    def _raise_if_download_error(self, response, body_str: str, content_type: str) -> None:
+        status = response.status_code
+        if 300 <= status < 400:
+            raise ZBApiException(
+                self._redact("ZeroBounce returned a redirect, which this client does not follow.")
+            )
+        if (
+            status > 299
+            or _looks_like_html(body_str, content_type)
+            or self._should_treat_get_file_body_as_error(body_str, content_type)
+            or not body_str.strip()
+            or "text/plain" in content_type.lower()
+        ):
+            raise ZBApiException(self._redact(_message_from_body(body_str, status)))
+
     def _get(self, url, response_class, params=None):
         if not params:
             params = {}
         params["api_key"] = self._api_key
         try:
-            response = requests.get(url, params=params, timeout=self._timeout_s)
+            response = requests.get(url, params=params, timeout=self._timeout_s, allow_redirects=False)
         except RequestException as e:
             raise type(e)(self._redact(e)) from None
-
-        try:
-            json_response = response.json()
-        except ValueError as e:
-            raise ZBApiException from e
-
-        error = json_response.pop("error", None)
-        if error:
-            raise ZBApiException(error)
-        return response_class(json_response)
+        return response_class(self._read_json_payload(response))
 
     def _post(self, url, response_class, data=None, json=None, files=None):
-        response = requests.post(url, data=data, json=json, files=files, timeout=self._timeout_s)
         try:
-            json_response = response.json()
-        except ValueError as e:
-            raise ZBApiException('Request not processed succesfully. Status code %s' % response.status_code)
-
-        return response_class(json_response)
+            response = requests.post(
+                url,
+                data=_form_data(data),
+                json=json,
+                files=files,
+                timeout=self._timeout_s,
+                allow_redirects=False,
+            )
+        except RequestException as e:
+            raise type(e)(self._redact(e)) from None
+        return response_class(self._read_json_payload(response))
 
     def _post_form(self, url, response_class, data=None):
         if not data:
@@ -175,19 +323,12 @@ class ZeroBounce:
         data = dict(data)
         data["api_key"] = self._api_key
         try:
-            response = requests.post(url, data=data, timeout=self._timeout_s)
+            response = requests.post(
+                url, data=_form_data(data), timeout=self._timeout_s, allow_redirects=False
+            )
         except RequestException as e:
             raise type(e)(self._redact(e)) from None
-
-        try:
-            json_response = response.json()
-        except ValueError as e:
-            raise ZBApiException from e
-
-        error = json_response.pop("error", None)
-        if error:
-            raise ZBApiException(error)
-        return response_class(json_response)
+        return response_class(self._read_json_payload(response))
 
     def _request_json(self, method: str, url: str, *, params=None, data=None, files=None):
         if params is None:
@@ -200,18 +341,14 @@ class ZeroBounce:
                 method,
                 url,
                 params=params,
-                data=data,
+                data=_form_data(data),
                 files=files,
                 timeout=self._timeout_s,
+                allow_redirects=False,
             )
         except RequestException as e:
             raise type(e)(self._redact(e)) from None
-        try:
-            return response.json()
-        except ValueError as e:
-            raise ZBApiException(
-                f"Request not processed successfully. Status code {response.status_code}"
-            ) from e
+        return self._read_json_payload(response)
 
     def _send_bulk_root_multipart(
         self, url: str, file_path: str, fields: dict
@@ -253,18 +390,14 @@ class ZeroBounce:
                 f"{base_url}/getfile",
                 params=params,
                 timeout=self._timeout_s,
+                allow_redirects=False,
             )
         except RequestException as e:
             raise type(e)(self._redact(e)) from None
         body_bytes = response.content or b""
         body_str = body_bytes.decode("utf-8", errors="replace")
         content_type = response.headers.get("Content-Type") or ""
-        if response.status_code > 299:
-            if body_str.lstrip().startswith("{"):
-                raise ZBApiException(self._redact(self._format_get_file_error_message(body_str)))
-            raise ZBApiException(self._redact(body_str or f"HTTP {response.status_code}"))
-        if self._should_treat_get_file_body_as_error(body_str, content_type):
-            raise ZBApiException(self._redact(self._format_get_file_error_message(body_str)))
+        self._raise_if_download_error(response, body_str, content_type)
         dirname = os.path.dirname(download_path)
         if dirname:
             os.makedirs(dirname, exist_ok=True)
@@ -505,10 +638,18 @@ class ZeroBounce:
             payload["activity_data"] = activity_data
         if verify_plus is not None:
             payload["verify_plus"] = verify_plus
-        return self._post(
+        result = self._post(
             f"{self._base_url}/validatebatch",
             ZBValidateBatchResponse,
             json=payload)
+        for batch_error in result.errors or []:
+            address = (batch_error.email_address or "").strip().lower()
+            if address == "all":
+                text = batch_error.error or "Invalid API Key or your account ran out of credits"
+                if isinstance(text, str):
+                    text = _strip_error_prefix(text)
+                raise ZBApiException(text)
+        return result
 
     def _send_file(
         self,
@@ -840,20 +981,14 @@ class ZeroBounce:
                 f"{self.SCORING_BASE_URL if scoring else self.BULK_BASE_URL}/getfile",
                 params=params,
                 timeout=self._timeout_s,
+                allow_redirects=False,
             )
         except RequestException as e:
             raise type(e)(self._redact(e)) from None
         body_bytes = response.content or b""
         body_str = body_bytes.decode("utf-8", errors="replace")
         content_type = response.headers.get("Content-Type") or ""
-
-        if response.status_code > 299:
-            if body_str.lstrip().startswith("{"):
-                raise ZBApiException(self._redact(self._format_get_file_error_message(body_str)))
-            raise ZBApiException(self._redact(body_str or f"HTTP {response.status_code}"))
-
-        if self._should_treat_get_file_body_as_error(body_str, content_type):
-            raise ZBApiException(self._redact(self._format_get_file_error_message(body_str)))
+        self._raise_if_download_error(response, body_str, content_type)
 
         dirname = os.path.dirname(download_path)
         if dirname:
@@ -988,7 +1123,7 @@ class ZeroBounce:
         full_name_column: int = None,
         has_header_row: bool = False,
     ) -> ZBSendFileResponse:
-        if not domain_column:
+        if domain_column is None:
             raise ZBClientException("Empty parameter: domain_column")
         fields = {"domain_column": domain_column, "has_header_row": has_header_row}
         if first_name_column is not None:
@@ -1014,7 +1149,7 @@ class ZeroBounce:
         full_name_column: int = None,
         has_header_row: bool = False,
     ) -> ZBSendFileResponse:
-        if not domain_column:
+        if domain_column is None:
             raise ZBClientException("Empty parameter: domain_column")
         fields = {"domain_column": domain_column, "has_header_row": has_header_row}
         if first_name_column is not None:
@@ -1049,7 +1184,7 @@ class ZeroBounce:
         domain_column: int,
         has_header_row: bool = False,
     ) -> ZBSendFileResponse:
-        if not domain_column:
+        if domain_column is None:
             raise ZBClientException("Empty parameter: domain_column")
         return self._send_bulk_root_multipart(
             f"{self.DOMAIN_SEARCH_BASE_URL}/sendfile",
@@ -1064,7 +1199,7 @@ class ZeroBounce:
         domain_column: int,
         has_header_row: bool = False,
     ) -> ZBSendFileResponse:
-        if not domain_column:
+        if domain_column is None:
             raise ZBClientException("Empty parameter: domain_column")
         return self._send_bulk_root_multipart_stream(
             f"{self.DOMAIN_SEARCH_BASE_URL}/sendfile",
@@ -1087,7 +1222,7 @@ class ZeroBounce:
     def send_list_evaluator_file(
         self, file_path: str, email_address_column: int
     ) -> ZBSendFileResponse:
-        if not email_address_column:
+        if email_address_column is None:
             raise ZBClientException("Empty parameter: email_address_column")
         data = {
             "api_key": self._api_key,
@@ -1108,7 +1243,7 @@ class ZeroBounce:
         file_name: str,
         email_address_column: int,
     ) -> ZBSendFileResponse:
-        if not email_address_column:
+        if email_address_column is None:
             raise ZBClientException("Empty parameter: email_address_column")
         data = {
             "api_key": self._api_key,

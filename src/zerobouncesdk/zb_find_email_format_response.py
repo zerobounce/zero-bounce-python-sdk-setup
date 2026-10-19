@@ -1,4 +1,4 @@
-from . import ZBConfidence
+from . import ZBApiException, ZBConfidence
 from ._zb_response import ZBResponse
 
 
@@ -25,6 +25,9 @@ class ZBFindEmailFormatResponse(ZBResponse):
 
     def __init__(self, data):
         super().__init__(data)
+        if "Message" in data or "message" in data:
+            message = data.get("message", data.get("Message"))
+            raise ZBApiException(message)
         if self.email_confidence and isinstance(self.email_confidence, str):
             self.email_confidence = ZBConfidence(self.email_confidence.lower())
 

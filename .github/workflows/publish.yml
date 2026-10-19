@@ -86,9 +86,12 @@ jobs:
       - name: Install dependencies
         run: pip install -e ".[test]"
 
+      - name: Compile
+        run: python -m compileall -q src tests
+
       - name: Run tests
         run: |
-          python -m pytest tests/zero_bounce_test_case.py -v \
+          python -m pytest \
             --cov=zerobouncesdk --cov-report=term-missing --cov-fail-under=50
 
   publish:

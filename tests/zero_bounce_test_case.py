@@ -13,7 +13,6 @@ from zerobouncesdk import (
     ZBValidateStatus,
     ZBValidateSubStatus,
     ZBValidateBatchElement,
-    ZBValidateBatchError,
     ZeroBounce,
 )
 from zerobouncesdk._zb_response import ZBResponse
@@ -42,7 +41,7 @@ class ZeroBounceTestCase(BaseTestCase):
         client = ZeroBounce("dummy_key")
         client._get("https://example.com", ZBResponse)
         self.requests_mock.get.assert_called_with(
-            'https://example.com', params={'api_key': 'dummy_key'}, timeout=120.0
+            'https://example.com', params={'api_key': 'dummy_key'}, timeout=120.0, allow_redirects=False
         )
 
     def test_credits_invalid_key(self):
@@ -112,6 +111,7 @@ class ZeroBounceTestCase(BaseTestCase):
             f"{self.zero_bounce_client._base_url}/scoring",
             params={"api_key": "dummy_key", "email": "mark@gmail.com"},
             timeout=120.0,
+            allow_redirects=False,
         )
 
     def test_score_email_post(self):
@@ -127,6 +127,7 @@ class ZeroBounceTestCase(BaseTestCase):
             f"{self.zero_bounce_client._base_url}/scoring",
             data={"api_key": "dummy_key", "email": "mark@gmail.com"},
             timeout=120.0,
+            allow_redirects=False,
         )
 
     def test_score_email_api_error(self):
@@ -228,12 +229,10 @@ class ZeroBounceTestCase(BaseTestCase):
             }],
         })
 
-        response = self.zero_bounce_client.validate_batch([ZBValidateBatchElement("any_email")])
+        with self.assertRaises(ZBApiException) as cm:
+            self.zero_bounce_client.validate_batch([ZBValidateBatchElement("any_email")])
         expected_error = "Invalid API Key or your account ran out of credits"
-        self.assertEqual(len(response.email_batch), 0)
-        self.assertEqual(len(response.errors), 1)
-        self.assertIsInstance(response.errors[0], ZBValidateBatchError)
-        self.assertEqual(response.errors[0].error, expected_error)
+        self.assertEqual(str(cm.exception), expected_error)
 
     def test_validate_batch_blank_email(self):
         with self.assertRaises(ZBClientException) as cm:
@@ -727,7 +726,9 @@ class ZeroBounceTestCase(BaseTestCase):
         client = ZeroBounce("dummy_key", timeout=timedelta(milliseconds=123))
         response = client._get("https://example.com", ZBResponse)
         self.assertEqual(response.a, 'b')
-        self.requests_mock.get.assert_called_with('https://example.com', params={'api_key': 'dummy_key'}, timeout=0.123)
+        self.requests_mock.get.assert_called_with(
+            'https://example.com', params={'api_key': 'dummy_key'}, timeout=0.123, allow_redirects=False
+        )
 
     def test_posts_pass_timeout(self):
         self.requests_mock.post.return_value = MockResponse({'a': 'b'})
@@ -735,7 +736,9 @@ class ZeroBounceTestCase(BaseTestCase):
         client = ZeroBounce("dummy_key", timeout=timedelta(milliseconds=123))
         response = client._post("https://example.com", ZBResponse)
         self.assertEqual(response.a, 'b')
-        self.requests_mock.post.assert_called_with('https://example.com', data=None, json=None, files=None, timeout=0.123)
+        self.requests_mock.post.assert_called_with(
+            'https://example.com', data=None, json=None, files=None, timeout=0.123, allow_redirects=False
+        )
 
     def test_send_email_finder_file_uses_bulk_email_finder_url(self):
         self.requests_mock.post.return_value = MockResponse({
