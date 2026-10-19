@@ -27,8 +27,11 @@ jobs:
       - name: Install dependencies
         run: pip install -e ".[test]"
 
-      - name: Compile
-        run: python -m compileall -q src tests
+      - name: Lint
+        run: |
+          pip install ruff
+          ruff check src tests
+          python -m compileall -q src tests
 
       - name: Run unit tests with coverage
         run: |

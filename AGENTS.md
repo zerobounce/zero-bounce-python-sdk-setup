@@ -19,11 +19,15 @@ Guidance for AI coding agents working in this repository.
 
 ```bash
 pip install -e ".[test]"
-python -m compileall -q src tests   # syntax check; there is no separate typechecker or linter
+pip install ruff
+ruff check src tests                # undefined names and syntax errors only
+python -m compileall -q src tests
 python -m pytest                    # unit tests and tests/test_offline_api.py
 ```
 
-CI (`.github/workflows/sdk_ci.yml`) compiles, then runs `python -m pytest` with coverage. There is no MyPy or Ruff config. Do not add one that fails the existing tree unless asked.
+`ruff check` plus `compileall` is the lint step. There is no typechecker. The Ruff selection in `pyproject.toml` is `E9`, `F63`, `F7`, and `F82`. Do not widen it to a style ruleset that fails the existing tree.
+
+CI (`.github/workflows/sdk_ci.yml`) runs `ruff check`, `compileall`, then `python -m pytest` with coverage.
 
 ## Conventions
 
@@ -33,7 +37,8 @@ CI (`.github/workflows/sdk_ci.yml`) compiles, then runs `python -m pytest` with 
 - **Booleans on form and multipart bodies must be the strings `true` and `false`.** A Python `bool` passed to `requests` becomes `True` or `False`, and the API will not treat that as a boolean. `_form_data` converts them. JSON bodies (`validate_batch`) keep JSON booleans.
 - **`allow_phase_2` is validation `send_file` and `validate_s3file` only.** Scoring `send_file` and `score_s3file` do not send it. `activity_data` on get-file is validation `get_file` only.
 - **`validate_batch` uses `api.zerobounce.net`**, not `bulkapi.zerobounce.net`. It follows `base_url`.
-- **Failures raise.** `ZBClientException` means the arguments were rejected and no request was sent. `ZBApiException` means the API failed. The message must be short: no raw HTML, no megabyte body, no `JSONDecodeError` / `Expecting value` text, and no `Error: Error:` prefix. An account-level `validate_batch` error (`email_address` `all`) raises. A per-address error stays on the result's `errors` list.
+- **Failures raise.** `ZBClientException` means the arguments were rejected and no request was sent. `ZBApiException` means the API failed. The message must be short: no raw HTML, no megabyte body, no `JSONDecodeError` / `Expecting value` text, and no `Error: Error:` prefix. An account-level `validate_batch` error (`email_address` `all`) raises. A per-address error stays on the result's `errors` list. `get_credits` with an invalid key returns `Credits` `-1`; that endpoint does not send an `error` field.
+- **A file download is not JSON.** `get_file` saves a non-empty CSV body, including `text/csv` and `text/plain`. An empty body, an HTML page (status 200 or 403), and a JSON error are `ZBApiException`. Do not treat every `text/plain` body as an error.
 - **Do not follow redirects.** Every `requests` call passes `allow_redirects=False`. A 3xx response is a `ZBApiException`. A redirect must not be fetched, because the `Location` could be another host and the next request can carry the API key.
 - **Do not commit `.env`.** It is gitignored and may hold a real key. Tests must not call the live API.
 - Match the surrounding style. Do not reformat unrelated code.
@@ -53,5 +58,5 @@ Publishing and pushing tags need a maintainer's explicit approval. Do not bump t
 
 1. Move `[Unreleased]` entries under `## [x.y.z] - YYYY-MM-DD`, leave an empty `[Unreleased]` section, and update the compare links at the bottom of `CHANGELOG.md`.
 2. Set the same version in `pyproject.toml` (`version = "x.y.z"`). The publish workflow fails if it differs from the tag. That is the only version field. There is no runtime `__version__` and no user-agent constant. `setup.py` does not contain a version.
-3. `python -m compileall -q src tests` and `python -m pytest`.
+3. `ruff check src tests`, `python -m compileall -q src tests`, and `python -m pytest`.
 4. Tag `vx.y.z` on that commit and run the Publish workflow (`.github/workflows/publish.yml`) with that tag. It publishes `zerobouncesdk` to PyPI.

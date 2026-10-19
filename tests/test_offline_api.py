@@ -19,7 +19,6 @@ from unittest import TestCase
 from unittest.mock import patch
 from urllib.parse import parse_qs, urlparse
 
-import requests
 from requests import Response
 
 from zerobouncesdk import (

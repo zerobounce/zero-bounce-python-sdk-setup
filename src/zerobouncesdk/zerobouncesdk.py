@@ -284,12 +284,12 @@ class ZeroBounce:
             raise ZBApiException(
                 self._redact("ZeroBounce returned a redirect, which this client does not follow.")
             )
+        if not (body_str or "").strip():
+            raise ZBApiException(self._redact(_message_from_body(body_str, status)))
         if (
             status > 299
             or _looks_like_html(body_str, content_type)
             or self._should_treat_get_file_body_as_error(body_str, content_type)
-            or not body_str.strip()
-            or "text/plain" in content_type.lower()
         ):
             raise ZBApiException(self._redact(_message_from_body(body_str, status)))
 
