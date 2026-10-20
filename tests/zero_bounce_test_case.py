@@ -209,6 +209,40 @@ class ZeroBounceTestCase(BaseTestCase):
         self.assertEqual(response.status, ZBValidateStatus.valid)
         self.assertEqual(response.sub_status, ZBValidateSubStatus.role_based_accept_all)
 
+    def test_response_sub_status_ai_agent_mailbox_valid(self):
+        self.requests_mock.get.return_value = MockResponse({
+            "address": "agent@example.com",
+            "status": "valid",
+            "sub_status": "ai_agent_mailbox",
+        })
+        response = self.zero_bounce_client.validate("agent@example.com")
+        self.assertEqual(response.address, "agent@example.com")
+        self.assertEqual(response.status, ZBValidateStatus.valid)
+        self.assertEqual(response.sub_status, ZBValidateSubStatus.ai_agent_mailbox)
+
+    def test_response_sub_status_ai_agent_mailbox_catch_all(self):
+        self.requests_mock.get.return_value = MockResponse({
+            "address": "agent@example.com",
+            "status": "catch-all",
+            "sub_status": "ai_agent_mailbox",
+        })
+        response = self.zero_bounce_client.validate("agent@example.com")
+        self.assertEqual(response.address, "agent@example.com")
+        self.assertEqual(response.status, ZBValidateStatus.catch_all)
+        self.assertEqual(response.sub_status, ZBValidateSubStatus.ai_agent_mailbox)
+
+    def test_response_sub_status_unknown_falls_back_to_none(self):
+        """An unrecognised sub_status must warn and degrade, never raise."""
+        self.requests_mock.get.return_value = MockResponse({
+            "address": "future@example.com",
+            "status": "valid",
+            "sub_status": "some_future_sub_status",
+        })
+        with self.assertWarns(UserWarning):
+            response = self.zero_bounce_client.validate("future@example.com")
+        self.assertEqual(response.status, ZBValidateStatus.valid)
+        self.assertIsNone(response.sub_status)
+
     def test_response_sub_status_gold(self):
         self.requests_mock.get.return_value = MockResponse({
             "address": "gold@example.com",
