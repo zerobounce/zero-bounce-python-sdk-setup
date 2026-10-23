@@ -29,6 +29,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Dependency floors are the oldest releases without known advisories (OSV) on each Python version: `requests >= 2.33.0`, `urllib3 >= 2.8.0` and `idna >= 3.15` on Python 3.10+; `requests >= 2.32.4` and `idna >= 3.15` on 3.8 and 3.9; `requests >= 2.31.0` on 3.7; `certifi >= 2026.10.19` everywhere (it removes CA roots with compromised intermediates). Python 3.9 and older cannot install the fixed `requests` 2.33 and `urllib3` 2.7+.
+- The Inbox Placement Tester methods send the key in the documented `Authorization: Bearer` header instead of the URL.
 - `find_email_format`'s `first_name` is optional, as documented; it is sent only when set.
 - `send_email_finder_file` needs `first_name_column` or `full_name_column`, as documented, and raises `ZBClientException` without one.
 - A custom `base_url` must be an `https://` URL.
@@ -52,6 +54,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- A network error no longer keeps the original, unredacted exception (with the API key in its URL or headers) as its `__context__`. The redacted copy is raised on its own.
+- `ZeroBounce` and `ZeroBounceWarmup` reject a key with surrounding whitespace or control characters (for example one read from a file with its newline), which the HTTP library would otherwise quote unredacted in its error. Redaction also covers the escaped form of a key.
+- Requests to a base URL that is not `https://` are refused before sending, including the reassignable `BULK_BASE_URL`, `SCORING_BASE_URL`, `EMAIL_FINDER_BASE_URL`, `DOMAIN_SEARCH_BASE_URL`, `LIST_EVALUATOR_BASE_URL`, `INBOX_PLACEMENT_BASE_URL` and `BULK_ROOT_URL`.
+- IDs placed in a URL path are rejected when they are `.` or `..`.
+- `ZeroBounceWarmup.test_smtp_configuration` masks the SMTP username and password in every error message.
 - Error messages no longer include the raw HTML access-denied page. The live `get_file` page is about 1.4 MB and contains the API key.
 - Redirects are not followed, so a response cannot send the client, or the API key, to another host.
 

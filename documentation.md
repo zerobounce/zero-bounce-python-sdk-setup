@@ -481,7 +481,7 @@ except ZBException as e:
 
 ##### Inbox Placement Tester
 
-Tests use the account's inbox-test credits.
+Tests use the account's inbox-test credits. The key is sent in the `Authorization: Bearer` header.
 
 ```python
 from zerobouncesdk import ZeroBounce, ZBException

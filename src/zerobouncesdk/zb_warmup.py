@@ -15,7 +15,7 @@ import requests
 from requests.exceptions import RequestException
 
 from .zb_exceptions import ZBApiException, ZBClientException
-from .zerobouncesdk import _looks_like_html, _message_from_body, _response_text
+from .zerobouncesdk import _check_api_key, _looks_like_html, _message_from_body, _path_segment, _response_text
 
 DateLike = Union[date, str]
 
@@ -50,6 +50,7 @@ class ZeroBounceWarmup:
         """
         if not api_key or not api_key.strip():
             raise ZBClientException("Empty parameter: api_key")
+        _check_api_key(api_key)
         base = base_url or self.DEFAULT_BASE_URL
         if not isinstance(base, str) or not base.lower().startswith("https://"):
             raise ZBClientException("base_url must be an https:// URL")
@@ -63,7 +64,7 @@ class ZeroBounceWarmup:
         text = str(text)
         for secret in (self._api_key, *extra_secrets):
             if secret:
-                for form in (secret, quote(secret, safe="")):
+                for form in (secret, quote(secret, safe=""), repr(secret)[1:-1]):
                     text = text.replace(form, "***")
         return text
 
@@ -79,7 +80,12 @@ class ZeroBounceWarmup:
                 allow_redirects=False,
             )
         except RequestException as e:
-            raise type(e)(self._redact(e, secrets)) from None
+            error = type(e)(self._redact(e, secrets))
+        else:
+            error = None
+        if error is not None:
+            # Raised outside the except block: the original, unredacted error must not be its __context__.
+            raise error
         status = getattr(response, "status_code", 0) or 0
         if 300 <= status < 400:
             raise ZBApiException(
@@ -99,11 +105,11 @@ class ZeroBounceWarmup:
             return None
         content_type = response.headers.get("Content-Type", "")
         if _looks_like_html(body, content_type):
-            raise ZBApiException(self._redact(_message_from_body(body, response.status_code)))
+            raise ZBApiException(self._redact(_message_from_body(body, response.status_code), secrets))
         try:
             return response.json()
         except ValueError:
-            raise ZBApiException(self._redact(_message_from_body(body, response.status_code))) from None
+            raise ZBApiException(self._redact(_message_from_body(body, response.status_code), secrets)) from None
 
     def _csv(self, path: str, params=None, download_path: Optional[str] = None) -> str:
         response = self._send("GET", path, params=params)
@@ -287,8 +293,7 @@ class ZeroBounceWarmup:
 
     def get_custom_engagement(self, c_from: str):
         """An address's custom rule, with ``can_update`` and ``remaining_seconds`` (GET /custom-engagement/{c_from})."""
-        path = quote(self._required(c_from, "c_from"), safe="")
-        return self._json("GET", f"/custom-engagement/{path}")
+        return self._json("GET", f"/custom-engagement/{_path_segment(c_from, 'c_from')}")
 
     def create_custom_engagement(self, c_from: str, reply_pct: int, important_pct: int, click_pct: int):
         """Create a custom rule (POST /custom-engagement). Starts a 7 day cooldown on updates.

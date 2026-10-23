@@ -65,6 +65,9 @@ class RecordedRequest:
 
     @property
     def api_key(self):
+        bearer = self.headers.get("authorization", "")
+        if bearer.startswith("Bearer "):
+            return bearer[len("Bearer "):]
         if "api_key" in self.query:
             return self.query["api_key"]
         if self.json and isinstance(self.json, dict) and "api_key" in self.json:
@@ -457,7 +460,9 @@ class OfflineApiTest(TestCase):
         self.client.create_inbox_placement_test("Spring launch")
         recorded = self._only()
         self.assertEqual(recorded.json, {"name": "Spring launch"})
-        self.assertEqual(recorded.query["api_key"], "client-key")
+        # The documented Authorization header, so the key stays out of the URL.
+        self.assertEqual(recorded.headers["authorization"], "Bearer client-key")
+        self.assertNotIn("client-key", recorded.url)
 
         self.transport.requests.clear()
         self.client.create_inbox_placement_test(
@@ -488,7 +493,7 @@ class OfflineApiTest(TestCase):
 
     def test_inbox_placement_list_filters(self):
         self.client.list_inbox_placement_tests()
-        self.assertEqual(self._only().query, {"api_key": "client-key"})
+        self.assertEqual(self._only().query, {})
 
         self.transport.requests.clear()
         self.client.list_inbox_placement_tests(

@@ -128,6 +128,35 @@ def _message_from_body(body: str, status_code: int) -> str:
     return message
 
 
+def _check_api_key(api_key: str) -> None:
+    """Reject a key with surrounding whitespace or control characters (e.g. read from a file with its newline).
+
+    Such a key would fail as an HTTP header value, and the HTTP library's error would quote it unredacted.
+    """
+    if api_key != api_key.strip() or any(ord(char) < 32 or ord(char) == 127 for char in api_key):
+        raise ZBClientException("Invalid parameter: api_key has surrounding whitespace or control characters")
+
+
+def _path_segment(value, name: str) -> str:
+    """A caller value as one URL path segment: percent-encoded, and never ``.`` or ``..``."""
+    if value is None or not str(value).strip():
+        raise ZBClientException(f"Empty parameter: {name}")
+    text = str(value).strip()
+    if text in (".", ".."):
+        raise ZBClientException(f"Invalid parameter: {name}")
+    return quote(text, safe="")
+
+
+def _https_url(url: str) -> str:
+    """Every request carries the API key: refuse to send it anywhere but https.
+
+    Covers the per-API base URL attributes (BULK_BASE_URL and the like), which callers can reassign.
+    """
+    if not isinstance(url, str) or not url.lower().startswith("https://"):
+        raise ZBClientException("Refusing to send the API key to a URL that is not https://")
+    return url
+
+
 def _form_data(data):
     """Encode booleans as the strings ``true`` and ``false`` for form and multipart bodies.
 
@@ -193,6 +222,7 @@ class ZeroBounce:
         """
         if not api_key.strip():
             raise ZBClientException("Empty parameter: api_key")
+        _check_api_key(api_key)
         self._api_key = api_key
         
         # Handle base_url: enum, string, or default
@@ -247,8 +277,9 @@ class ZeroBounce:
     def _redact(self, text) -> str:
         """Mask the API key in text that can end up in exception messages or logs."""
         text = str(text)
-        for secret in (self._api_key, quote_plus(self._api_key)):
-            text = text.replace(secret, "***")
+        for secret in (self._api_key, quote_plus(self._api_key), repr(self._api_key)[1:-1]):
+            if secret:
+                text = text.replace(secret, "***")
         return text
 
     def _read_json_payload(self, response):
@@ -307,16 +338,23 @@ class ZeroBounce:
             raise ZBApiException(self._redact(_message_from_body(body_str, status)))
 
     def _get(self, url, response_class, params=None):
+        _https_url(url)
         if not params:
             params = {}
         params["api_key"] = self._api_key
         try:
             response = requests.get(url, params=params, timeout=self._timeout_s, allow_redirects=False)
         except RequestException as e:
-            raise type(e)(self._redact(e)) from None
+            error = type(e)(self._redact(e))
+        else:
+            error = None
+        if error is not None:
+            # Raised outside the except block: the original, unredacted error must not be its __context__.
+            raise error
         return response_class(self._read_json_payload(response))
 
     def _post(self, url, response_class, data=None, json=None, files=None):
+        _https_url(url)
         try:
             response = requests.post(
                 url,
@@ -327,10 +365,16 @@ class ZeroBounce:
                 allow_redirects=False,
             )
         except RequestException as e:
-            raise type(e)(self._redact(e)) from None
+            error = type(e)(self._redact(e))
+        else:
+            error = None
+        if error is not None:
+            # Raised outside the except block: the original, unredacted error must not be its __context__.
+            raise error
         return response_class(self._read_json_payload(response))
 
     def _post_form(self, url, response_class, data=None):
+        _https_url(url)
         if not data:
             data = {}
         data = dict(data)
@@ -340,13 +384,25 @@ class ZeroBounce:
                 url, data=_form_data(data), timeout=self._timeout_s, allow_redirects=False
             )
         except RequestException as e:
-            raise type(e)(self._redact(e)) from None
+            error = type(e)(self._redact(e))
+        else:
+            error = None
+        if error is not None:
+            # Raised outside the except block: the original, unredacted error must not be its __context__.
+            raise error
         return response_class(self._read_json_payload(response))
 
-    def _request_json(self, method: str, url: str, *, params=None, data=None, files=None, json=None):
+    def _request_json(
+        self, method: str, url: str, *, params=None, data=None, files=None, json=None, bearer: bool = False
+    ):
+        """``bearer`` sends the key as ``Authorization: Bearer`` instead of an ``api_key`` parameter."""
+        _https_url(url)
         if params is None:
             params = {}
-        if "api_key" not in params and (data is None or "api_key" not in data):
+        headers = None
+        if bearer:
+            headers = {"Authorization": f"Bearer {self._api_key}"}
+        elif "api_key" not in params and (data is None or "api_key" not in data):
             params = dict(params)
             params["api_key"] = self._api_key
         try:
@@ -357,11 +413,17 @@ class ZeroBounce:
                 data=_form_data(data),
                 files=files,
                 json=json,
+                headers=headers,
                 timeout=self._timeout_s,
                 allow_redirects=False,
             )
         except RequestException as e:
-            raise type(e)(self._redact(e)) from None
+            error = type(e)(self._redact(e))
+        else:
+            error = None
+        if error is not None:
+            # Raised outside the except block: the original, unredacted error must not be its __context__.
+            raise error
         return self._read_json_payload(response)
 
     def _send_bulk_root_multipart(
@@ -401,13 +463,18 @@ class ZeroBounce:
         params = {"api_key": self._api_key, "file_id": file_id}
         try:
             response = requests.get(
-                f"{base_url}/getfile",
+                _https_url(f"{base_url}/getfile"),
                 params=params,
                 timeout=self._timeout_s,
                 allow_redirects=False,
             )
         except RequestException as e:
-            raise type(e)(self._redact(e)) from None
+            error = type(e)(self._redact(e))
+        else:
+            error = None
+        if error is not None:
+            # Raised outside the except block: the original, unredacted error must not be its __context__.
+            raise error
         body_bytes = response.content or b""
         body_str = body_bytes.decode("utf-8", errors="replace")
         content_type = response.headers.get("Content-Type") or ""
@@ -1021,13 +1088,18 @@ class ZeroBounce:
 
         try:
             response = requests.get(
-                f"{self.SCORING_BASE_URL if scoring else self.BULK_BASE_URL}/getfile",
+                _https_url(f"{self.SCORING_BASE_URL if scoring else self.BULK_BASE_URL}/getfile"),
                 params=params,
                 timeout=self._timeout_s,
                 allow_redirects=False,
             )
         except RequestException as e:
-            raise type(e)(self._redact(e)) from None
+            error = type(e)(self._redact(e))
+        else:
+            error = None
+        if error is not None:
+            # Raised outside the except block: the original, unredacted error must not be its __context__.
+            raise error
         body_bytes = response.content or b""
         body_str = body_bytes.decode("utf-8", errors="replace")
         content_type = response.headers.get("Content-Type") or ""
@@ -1311,7 +1383,7 @@ class ZeroBounce:
         return ZBListEvaluatorResponse(
             self._request_json(
                 "GET",
-                f"{self.LIST_EVALUATOR_BASE_URL}/{quote(file_id, safe='')}/",
+                f"{self.LIST_EVALUATOR_BASE_URL}/{_path_segment(file_id, 'file_id')}/",
                 params={"api_key": self._api_key},
             )
         )
@@ -1572,13 +1644,12 @@ class ZeroBounce:
             fields["export_path"] = export_path
         return self._post_bulk_root_form("/exportSFTPfile", fields)
 
-    # Inbox Placement Tester (bulkapi /api/ipt). Uses the account's inbox-test credits.
+    # Inbox Placement Tester (bulkapi /api/ipt). Uses the account's inbox-test credits. The key goes in the
+    # documented Authorization: Bearer header, so it stays out of URLs and access logs.
 
     @staticmethod
     def _ipt_test_path(test_id: Union[int, str]) -> str:
-        if test_id is None or not str(test_id).strip():
-            raise ZBClientException("Empty parameter: test_id")
-        return quote(str(test_id).strip(), safe="")
+        return _path_segment(test_id, "test_id")
 
     def get_inbox_placement_providers(self):
         """Seed providers available for new tests (GET /api/ipt/providers).
@@ -1588,11 +1659,11 @@ class ZeroBounce:
         dict with ``emailProviders`` and ``gatewayProviders``; each has ``items`` of
         ``{id, name, location, seedCount, seedIds}``.
         """
-        return self._request_json("GET", f"{self.INBOX_PLACEMENT_BASE_URL}/providers")
+        return self._request_json("GET", f"{self.INBOX_PLACEMENT_BASE_URL}/providers", bearer=True)
 
     def get_inbox_placement_test_types(self):
         """Supported test types and the default one (GET /api/ipt/test-types)."""
-        return self._request_json("GET", f"{self.INBOX_PLACEMENT_BASE_URL}/test-types")
+        return self._request_json("GET", f"{self.INBOX_PLACEMENT_BASE_URL}/test-types", bearer=True)
 
     def create_inbox_placement_test(
         self,
@@ -1661,7 +1732,7 @@ class ZeroBounce:
             body["providers"] = list(providers)
         if webhook_url is not None:
             body["webhookUrl"] = webhook_url
-        return self._request_json("POST", f"{self.INBOX_PLACEMENT_BASE_URL}/test", json=body)
+        return self._request_json("POST", f"{self.INBOX_PLACEMENT_BASE_URL}/test", json=body, bearer=True)
 
     def get_inbox_placement_test(self, test_id: Union[int, str]):
         """A test and its placement results (GET /api/ipt/test/{id}).
@@ -1672,7 +1743,7 @@ class ZeroBounce:
         counts, ``percentages``, ``results`` and ``seeds``.
         """
         path = self._ipt_test_path(test_id)
-        return self._request_json("GET", f"{self.INBOX_PLACEMENT_BASE_URL}/test/{path}")
+        return self._request_json("GET", f"{self.INBOX_PLACEMENT_BASE_URL}/test/{path}", bearer=True)
 
     def list_inbox_placement_tests(
         self,
@@ -1712,16 +1783,16 @@ class ZeroBounce:
             params["page"] = page
         if page_size is not None:
             params["page_size"] = page_size
-        return self._request_json("GET", f"{self.INBOX_PLACEMENT_BASE_URL}/tests", params=params)
+        return self._request_json("GET", f"{self.INBOX_PLACEMENT_BASE_URL}/tests", params=params, bearer=True)
 
     def delete_inbox_placement_test(self, test_id: Union[int, str]):
         """Delete a finished test (DELETE /api/ipt/test/{id}). A running test cannot be deleted."""
         path = self._ipt_test_path(test_id)
-        return self._request_json("DELETE", f"{self.INBOX_PLACEMENT_BASE_URL}/test/{path}")
+        return self._request_json("DELETE", f"{self.INBOX_PLACEMENT_BASE_URL}/test/{path}", bearer=True)
 
     def get_inbox_placement_webhook(self):
         """The webhook URL saved on this API key (GET /api/ipt/webhook); empty when none is set."""
-        return self._request_json("GET", f"{self.INBOX_PLACEMENT_BASE_URL}/webhook")
+        return self._request_json("GET", f"{self.INBOX_PLACEMENT_BASE_URL}/webhook", bearer=True)
 
     def set_inbox_placement_webhook(self, webhook_url: str):
         """Save the URL finished test results are posted to (PUT /api/ipt/webhook). One per API key."""
@@ -1731,6 +1802,7 @@ class ZeroBounce:
             "PUT",
             f"{self.INBOX_PLACEMENT_BASE_URL}/webhook",
             json={"webhookUrl": webhook_url},
+            bearer=True,
         )
 
     def guess_format(

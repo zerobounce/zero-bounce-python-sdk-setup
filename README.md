@@ -14,6 +14,8 @@ More information about ZeroBounce you can find in the [official documentation](h
 pip install zerobouncesdk
 ```
 
+Python 3.10 or newer is recommended: on 3.9 and older, the newest `requests` and `urllib3` releases (with their security fixes) cannot be installed.
+
 ## USAGE
 Import the sdk in your file:
 
@@ -496,7 +498,7 @@ except ZBException as e:
 
 ### Inbox Placement Tester
 
-Tests use the account's inbox-test credits.
+Tests use the account's inbox-test credits. The key is sent in the `Authorization: Bearer` header.
 
 ```python
 from zerobouncesdk import ZeroBounce, ZBException
