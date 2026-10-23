@@ -1,10 +1,12 @@
+import contextlib
 import json
 import re
+import tempfile
 import warnings
 from datetime import date, timedelta
 import os
 from typing import BinaryIO, List, Optional, Union
-from urllib.parse import quote, quote_plus
+from urllib.parse import quote, quote_plus, urlsplit
 
 import requests
 from requests.exceptions import RequestException
@@ -238,9 +240,30 @@ class ZeroBounce:
         # Remove trailing slash if present to maintain consistent URL construction
         self._base_url = self._base_url.rstrip('/')
 
+        host = urlsplit(self._base_url).hostname or ""
+        self._region = {"api-eu.zerobounce.net": "EU", "api-us.zerobounce.net": "US"}.get(host.lower())
+        self._bulk_region_warned = False
+
         self._timeout_s: float = (
             self.DEFAULT_HTTP_TIMEOUT_S if timeout is None else timeout.total_seconds()
         )
+
+    _BULK_HOST = "bulkapi.zerobounce.net"
+
+    def _checked_url(self, url: str) -> str:
+        """``url`` if it is https; warn once when a regional base_url meets the global bulk host."""
+        _https_url(url)
+        if not self._bulk_region_warned and self._region and urlsplit(url).hostname == self._BULK_HOST:
+            self._bulk_region_warned = True
+            warnings.warn(
+                f"base_url is the {self._region} API, but this request goes to {self._BULK_HOST}: ZeroBounce "
+                "documents no regional host for bulk files, scoring files, email finder and domain search "
+                "files, the list evaluator, S3/SFTP or the Inbox Placement Tester. Set the matching *_BASE_URL "
+                "attributes if ZeroBounce gave you regional ones.",
+                UserWarning,
+                stacklevel=4,
+            )
+        return url
 
     @staticmethod
     def get_file_json_indicates_error(body: str) -> bool:
@@ -338,7 +361,7 @@ class ZeroBounce:
             raise ZBApiException(self._redact(_message_from_body(body_str, status)))
 
     def _get(self, url, response_class, params=None):
-        _https_url(url)
+        self._checked_url(url)
         if not params:
             params = {}
         params["api_key"] = self._api_key
@@ -354,7 +377,7 @@ class ZeroBounce:
         return response_class(self._read_json_payload(response))
 
     def _post(self, url, response_class, data=None, json=None, files=None):
-        _https_url(url)
+        self._checked_url(url)
         try:
             response = requests.post(
                 url,
@@ -374,7 +397,7 @@ class ZeroBounce:
         return response_class(self._read_json_payload(response))
 
     def _post_form(self, url, response_class, data=None):
-        _https_url(url)
+        self._checked_url(url)
         if not data:
             data = {}
         data = dict(data)
@@ -396,7 +419,7 @@ class ZeroBounce:
         self, method: str, url: str, *, params=None, data=None, files=None, json=None, bearer: bool = False
     ):
         """``bearer`` sends the key as ``Authorization: Bearer`` instead of an ``api_key`` parameter."""
-        _https_url(url)
+        self._checked_url(url)
         if params is None:
             params = {}
         headers = None
@@ -457,16 +480,32 @@ class ZeroBounce:
         base_url: str,
         file_id: str,
         download_path: str,
+        stream: bool = False,
     ) -> ZBGetFileResponse:
         if not file_id.strip():
             raise ZBClientException("Empty parameter: file_id")
         params = {"api_key": self._api_key, "file_id": file_id}
+        return self._download(f"{base_url}/getfile", params, download_path, stream)
+
+    # Streamed downloads look at this much of the body before deciding it is a file, not an error page.
+    _DOWNLOAD_SNIFF_BYTES = 64 * 1024
+    # An error body is short; reading more than this to show its message would defeat streaming.
+    _DOWNLOAD_MAX_ERROR_BYTES = 2 * 1024 * 1024
+
+    def _download(self, url: str, params: dict, download_path: str, stream: bool = False) -> ZBGetFileResponse:
+        """GET a result file and save it at ``download_path``.
+
+        ``stream=True`` writes it in chunks to a temporary file next to ``download_path`` and moves it into
+        place when complete, so a large file never has to fit in memory and a failed download leaves nothing
+        at ``download_path``.
+        """
         try:
             response = requests.get(
-                _https_url(f"{base_url}/getfile"),
+                self._checked_url(url),
                 params=params,
                 timeout=self._timeout_s,
                 allow_redirects=False,
+                **({"stream": True} if stream else {}),
             )
         except RequestException as e:
             error = type(e)(self._redact(e))
@@ -475,16 +514,70 @@ class ZeroBounce:
         if error is not None:
             # Raised outside the except block: the original, unredacted error must not be its __context__.
             raise error
-        body_bytes = response.content or b""
-        body_str = body_bytes.decode("utf-8", errors="replace")
-        content_type = response.headers.get("Content-Type") or ""
-        self._raise_if_download_error(response, body_str, content_type)
+
         dirname = os.path.dirname(download_path)
-        if dirname:
-            os.makedirs(dirname, exist_ok=True)
-        with open(download_path, "wb") as f:
-            f.write(body_bytes)
+        if not stream:
+            body_bytes = response.content or b""
+            body_str = body_bytes.decode("utf-8", errors="replace")
+            content_type = response.headers.get("Content-Type") or ""
+            self._raise_if_download_error(response, body_str, content_type)
+            if dirname:
+                os.makedirs(dirname, exist_ok=True)
+            with open(download_path, "wb") as f:
+                f.write(body_bytes)
+            return ZBGetFileResponse({"local_file_path": download_path})
+
+        try:
+            self._save_streamed(response, download_path, dirname)
+        finally:
+            response.close()
         return ZBGetFileResponse({"local_file_path": download_path})
+
+    def _save_streamed(self, response, download_path: str, dirname: str) -> None:
+        content_type = response.headers.get("Content-Type") or ""
+        try:
+            chunks = response.iter_content(chunk_size=64 * 1024)
+            head = b""
+            for chunk in chunks:
+                head += chunk
+                if len(head) >= self._DOWNLOAD_SNIFF_BYTES:
+                    break
+            head_str = head.decode("utf-8", errors="replace")
+            might_be_error = (
+                not 200 <= response.status_code < 300
+                or not head.strip()
+                or "application/json" in content_type.lower()
+                or _looks_like_html(head_str, content_type)
+                or head.lstrip()[:1] in (b"{", b"[")
+            )
+            if might_be_error:
+                for chunk in chunks:
+                    head += chunk
+                    if len(head) >= self._DOWNLOAD_MAX_ERROR_BYTES:
+                        break
+                self._raise_if_download_error(response, head.decode("utf-8", errors="replace"), content_type)
+
+            if dirname:
+                os.makedirs(dirname, exist_ok=True)
+            fd, partial = tempfile.mkstemp(dir=dirname or ".", prefix=".zb-download-", suffix=".part")
+            try:
+                with os.fdopen(fd, "wb") as out:
+                    out.write(head)
+                    for chunk in chunks:
+                        if chunk:
+                            out.write(chunk)
+                os.replace(partial, download_path)
+            except BaseException:
+                with contextlib.suppress(OSError):
+                    os.unlink(partial)
+                raise
+        except RequestException as e:
+            error = type(e)(self._redact(e))
+        else:
+            error = None
+        if error is not None:
+            # A connection lost mid-download: redacted, and raised outside the except block.
+            raise error
 
     def _bulk_root_delete_file(self, base_url: str, file_id: str) -> ZBDeleteFileResponse:
         if not file_id.strip():
@@ -1073,6 +1166,7 @@ class ZeroBounce:
         file_id: str,
         download_path: str,
         options: Optional[ZBGetFileOptions] = None,
+        stream: bool = False,
     ):
         if not file_id.strip():
             raise ZBClientException("Empty parameter: file_id")
@@ -1086,38 +1180,15 @@ class ZeroBounce:
             if not scoring and options.activity_data is not None:
                 params["activity_data"] = "true" if options.activity_data else "false"
 
-        try:
-            response = requests.get(
-                _https_url(f"{self.SCORING_BASE_URL if scoring else self.BULK_BASE_URL}/getfile"),
-                params=params,
-                timeout=self._timeout_s,
-                allow_redirects=False,
-            )
-        except RequestException as e:
-            error = type(e)(self._redact(e))
-        else:
-            error = None
-        if error is not None:
-            # Raised outside the except block: the original, unredacted error must not be its __context__.
-            raise error
-        body_bytes = response.content or b""
-        body_str = body_bytes.decode("utf-8", errors="replace")
-        content_type = response.headers.get("Content-Type") or ""
-        self._raise_if_download_error(response, body_str, content_type)
-
-        dirname = os.path.dirname(download_path)
-        if dirname:
-            os.makedirs(dirname, exist_ok=True)
-        with open(download_path, "wb") as f:
-            f.write(body_bytes)
-
-        return ZBGetFileResponse({"local_file_path": download_path})
+        url = f"{self.SCORING_BASE_URL if scoring else self.BULK_BASE_URL}/getfile"
+        return self._download(url, params, download_path, stream)
 
     def get_file(
         self,
         file_id: str,
         download_path: str,
         options: Optional[ZBGetFileOptions] = None,
+        stream: bool = False,
     ):
         """Allows you to get the validation results for the file you submitted
 
@@ -1130,6 +1201,10 @@ class ZeroBounce:
         options: ZBGetFileOptions or None
             Optional download_type and activity_data (validation bulk getfile only).
 
+        stream: bool
+            When True, the file is written in chunks as it downloads instead of being held in memory first.
+            It appears at download_path only once complete.
+
         Raises
         ------
         ZBClientException
@@ -1141,13 +1216,14 @@ class ZeroBounce:
             Returns a ZBGetFileResponse object if the request was successful
         """
 
-        return self._get_file(False, file_id, download_path, options)
+        return self._get_file(False, file_id, download_path, options, stream=stream)
 
     def scoring_get_file(
         self,
         file_id: str,
         download_path: str,
         options: Optional[ZBGetFileOptions] = None,
+        stream: bool = False,
     ):
         """Allows you to get the validation results for the file you submitted
 
@@ -1160,6 +1236,10 @@ class ZeroBounce:
         options: ZBGetFileOptions or None
             Optional download_type; activity_data is not sent for scoring getfile.
 
+        stream: bool
+            When True, the file is written in chunks as it downloads instead of being held in memory first.
+            It appears at download_path only once complete.
+
         Raises
         ------
         ZBClientException
@@ -1171,7 +1251,7 @@ class ZeroBounce:
             Returns a ZBGetFileResponse object if the request was successful
         """
 
-        return self._get_file(True, file_id, download_path, options)
+        return self._get_file(True, file_id, download_path, options, stream=stream)
 
     def _delete_file(self, scoring: bool, file_id: str):
         if not file_id.strip():
@@ -1289,8 +1369,9 @@ class ZeroBounce:
     def email_finder_file_status(self, file_id: str) -> ZBFileStatusResponse:
         return self._bulk_root_file_status(self.EMAIL_FINDER_BASE_URL, file_id)
 
-    def email_finder_get_file(self, file_id: str, download_path: str) -> ZBGetFileResponse:
-        return self._bulk_root_get_file(self.EMAIL_FINDER_BASE_URL, file_id, download_path)
+    def email_finder_get_file(self, file_id: str, download_path: str, stream: bool = False) -> ZBGetFileResponse:
+        """Save the results at ``download_path``; ``stream=True`` writes them in chunks instead of in memory."""
+        return self._bulk_root_get_file(self.EMAIL_FINDER_BASE_URL, file_id, download_path, stream)
 
     def email_finder_delete_file(self, file_id: str) -> ZBDeleteFileResponse:
         return self._bulk_root_delete_file(self.EMAIL_FINDER_BASE_URL, file_id)
@@ -1330,8 +1411,9 @@ class ZeroBounce:
     def domain_search_file_status(self, file_id: str) -> ZBFileStatusResponse:
         return self._bulk_root_file_status(self.DOMAIN_SEARCH_BASE_URL, file_id)
 
-    def domain_search_get_file(self, file_id: str, download_path: str) -> ZBGetFileResponse:
-        return self._bulk_root_get_file(self.DOMAIN_SEARCH_BASE_URL, file_id, download_path)
+    def domain_search_get_file(self, file_id: str, download_path: str, stream: bool = False) -> ZBGetFileResponse:
+        """Save the results at ``download_path``; ``stream=True`` writes them in chunks instead of in memory."""
+        return self._bulk_root_get_file(self.DOMAIN_SEARCH_BASE_URL, file_id, download_path, stream)
 
     def domain_search_delete_file(self, file_id: str) -> ZBDeleteFileResponse:
         return self._bulk_root_delete_file(self.DOMAIN_SEARCH_BASE_URL, file_id)

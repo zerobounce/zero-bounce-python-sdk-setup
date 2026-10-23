@@ -36,8 +36,10 @@ jobs:
 
           persist-credentials: false
       - name: Verify tag and package version
+        # Passed through env, never pasted into the script: an input expanded in run: is shell code.
+        env:
+          TAG: ${{ github.event.inputs.tag }}
         run: |
-          TAG="${{ github.event.inputs.tag }}"
           if [ -z "$TAG" ]; then
             echo "Error: Tag is required."
             exit 1
@@ -147,8 +149,8 @@ jobs:
       - name: Create release if missing
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.event.inputs.tag }}
         run: |
-          TAG="${{ github.event.inputs.tag }}"
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             echo "Release $TAG already exists, skipping."
           else

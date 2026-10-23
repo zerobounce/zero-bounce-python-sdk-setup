@@ -271,6 +271,8 @@ local_download_path = "./dwnld_file.csv"    # The path where the file will be do
 
 try:
     response = zero_bounce.get_file(file_id, local_download_path)
+    # Large result files: stream=True writes the file in chunks instead of holding it in memory first
+    # response = zero_bounce.get_file(file_id, local_download_path, stream=True)
     print("ZeroBounce get_file response: " + str(response))
 except ZBException as e:
     print("ZeroBounce get_file error: " + str(e))
@@ -546,7 +548,7 @@ Every documented endpoint has a method: sending accounts (`list_sending_accounts
 
 ##### Other hosts
 
-`base_url` sets the host of the single-request API (validate, scoring, email finder, filters). The bulk APIs have their own class attributes, which you can set on an instance:
+`base_url` sets the host of the single-request API (validate, scoring, email finder, filters). The bulk APIs have their own class attributes, which you can set on an instance. ZeroBounce documents no regional bulk host, so with an EU or US `base_url` the bulk calls still go to `bulkapi.zerobounce.net`; the client warns once (`UserWarning`) when that happens, unless you set the bulk URLs yourself.
 
 ```python
 zero_bounce = ZeroBounce("<YOUR_API_KEY>", base_url="https://api-eu.zerobounce.net/v2")

@@ -24,6 +24,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `ZBValidateSubStatus.ai_agent_mailbox`, documented for `valid` and `catch-all` results.
 - `ZBGetActivityResponse.active_first_seen`, and `ZBGetApiUsageResponse` counts for `leading_period_removed` and `alias_address`.
 - `ZeroBounceWarmup`, a client for the Warmup API (https://www.zerobounce.net/docs/warmup-api) with a method for each of its 26 endpoints. It sends a Warmup API key in the `API-Key` header to `https://warmup-api.zerobounce.net` (or the base URL you pass), checks the documented ranges before sending, returns `None` for 204 and empty successes, and returns CSV text for the two downloads.
+- `get_file`, `scoring_get_file`, `email_finder_get_file`, and `domain_search_get_file` take `stream=True` to write a result file in chunks instead of reading it into memory first. The file appears at `download_path` only once complete, so a failed download leaves an existing file untouched and no partial file behind. Without the flag, downloads behave as before.
+- A `UserWarning`, once per client, when an EU or US `base_url` is set but a request goes to `bulkapi.zerobounce.net` (bulk, scoring and finder files, the list evaluator, S3/SFTP, the Inbox Placement Tester): ZeroBounce documents no regional bulk host.
 - `ZBApiException.status_code`: the HTTP status, set by `ZeroBounceWarmup` so callers can back off on 429.
 - `LIST_EVALUATOR_BASE_URL` and `INBOX_PLACEMENT_BASE_URL` set where the list evaluator and Inbox Placement Tester requests go, like `BULK_BASE_URL` for the other bulk files.
 
