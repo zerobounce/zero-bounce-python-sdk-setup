@@ -377,3 +377,117 @@ try:
 except ZBException as e:
     print("ZeroBounce delete_file error: " + str(e))
 ```
+
+##### Validation options
+
+* ####### Validate with activity data, Verify+, WHOIS and greylist retry
+```python
+from zerobouncesdk import ZeroBounce, ZBException
+
+zero_bounce = ZeroBounce("<YOUR_API_KEY>")
+
+try:
+    response = zero_bounce.validate(
+        "valid@example.com",
+        timeout=30,                # 3-60 seconds; unknown/greylisted when it runs out
+        activity_data=True,        # adds active_in_days and active_first_seen
+        verify_plus=True,          # overrides the account's Verify+ setting
+        domain_info=True,          # adds domain_website_exists and domain_registrant_company_name
+        greylist_processing=True,  # process a greylisted address again instead of returning unknown
+    )
+    if response.message:           # greylist retry still running: call validate again in about 30 minutes
+        print(response.message)
+    else:
+        print(response.status, response.domain_website_exists, response.domain_registrant_company_name)
+except ZBException as e:
+    print("ZeroBounce validate error: " + str(e))
+```
+
+With `greylist_processing=True`, pass `callback_url="https://..."` to have the result sent there instead of picking it up. Every option is omitted from the request until you set it, and `use_post=True` sends them as a form-encoded `POST`.
+
+* ####### Score one email in real time
+```python
+response = zero_bounce.score_email("valid@example.com")  # GET /v2/scoring
+print(response.email, response.score)
+```
+
+##### Bulk email finder and domain search
+
+```python
+from zerobouncesdk import ZeroBounce, ZBException
+
+zero_bounce = ZeroBounce("<YOUR_API_KEY>")
+
+try:
+    # Columns are 1-based. Email finder needs a domain column and a first-name or full-name column.
+    sent = zero_bounce.send_email_finder_file(
+        "./people.csv", domain_column=3, first_name_column=1, last_name_column=2, has_header_row=True
+    )
+    print(zero_bounce.email_finder_file_status(sent.file_id))
+    zero_bounce.email_finder_get_file(sent.file_id, "./people_results.csv")
+    zero_bounce.email_finder_delete_file(sent.file_id)  # only when the status is Complete
+
+    sent = zero_bounce.send_domain_search_file("./domains.csv", domain_column=1, has_header_row=True)
+    print(zero_bounce.domain_search_file_status(sent.file_id))
+except ZBException as e:
+    print("ZeroBounce bulk finder error: " + str(e))
+```
+
+##### List evaluator
+
+```python
+sent = zero_bounce.send_list_evaluator_file("./list.csv", email_address_column=1)  # at least 100 emails
+result = zero_bounce.get_list_evaluator_result(sent.file_id)  # dict: status, progress, invalid_percentage, ...
+zero_bounce.send_evaluated_file("./list.csv")  # submit the evaluated list for validation
+```
+
+##### Allowlist and blocklist filters
+
+```python
+zero_bounce.add_filter("block", "domain", "example.com")  # rule: allow | block; target: email | domain | mx | tld
+print(zero_bounce.list_filters())                         # [{"rule": ..., "target": ..., "value": ...}]
+zero_bounce.delete_filter("block", "domain", "example.com")
+```
+
+##### Inbox Placement Tester
+
+Tests use the account's inbox-test credits.
+
+```python
+from zerobouncesdk import ZeroBounce, ZBException
+
+zero_bounce = ZeroBounce("<YOUR_API_KEY>")
+
+try:
+    providers = zero_bounce.get_inbox_placement_providers()
+    test = zero_bounce.create_inbox_placement_test(
+        "Spring launch",                  # unique, at most 64 characters
+        test_type=3,                      # 1 Email (needs sender_email), 2 Unique ID, 3 Auto Alias
+        webhook_url="https://example.com/ipt-webhook",
+    )
+    print(test["emailAddressList"])       # send the campaign to these seed addresses
+
+    result = zero_bounce.get_inbox_placement_test(test["id"])
+    print(result["status"], result.get("percentages"))
+
+    finished = zero_bounce.list_inbox_placement_tests(status="finished", page_size=25)
+    zero_bounce.delete_inbox_placement_test(test["id"])  # finished tests only
+    zero_bounce.set_inbox_placement_webhook("https://example.com/ipt-webhook")
+    print(zero_bounce.get_inbox_placement_webhook())
+except ZBException as e:
+    print("ZeroBounce inbox placement error: " + str(e))
+```
+
+##### Other hosts
+
+`base_url` sets the host of the single-request API (validate, scoring, email finder, filters). The bulk APIs have their own class attributes, which you can set on an instance:
+
+```python
+zero_bounce = ZeroBounce("<YOUR_API_KEY>", base_url="https://api-eu.zerobounce.net/v2")
+zero_bounce.BULK_BASE_URL = "https://bulkapi.zerobounce.net/v2"                     # send/status/get/delete file
+zero_bounce.SCORING_BASE_URL = "https://bulkapi.zerobounce.net/v2/scoring"
+zero_bounce.EMAIL_FINDER_BASE_URL = "https://bulkapi.zerobounce.net/email-finder"
+zero_bounce.DOMAIN_SEARCH_BASE_URL = "https://bulkapi.zerobounce.net/domain-search"
+zero_bounce.LIST_EVALUATOR_BASE_URL = "https://bulkapi.zerobounce.net/v2/listevaluator"
+zero_bounce.INBOX_PLACEMENT_BASE_URL = "https://bulkapi.zerobounce.net/api/ipt"
+```

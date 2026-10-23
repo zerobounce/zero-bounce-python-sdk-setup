@@ -4,7 +4,7 @@ import warnings
 from datetime import date, timedelta
 import os
 from typing import BinaryIO, List, Optional, Union
-from urllib.parse import quote_plus
+from urllib.parse import quote, quote_plus
 
 import requests
 from requests.exceptions import RequestException
@@ -104,7 +104,8 @@ def _message_from_body(body: str, status_code: int) -> str:
                         has_api_message = True
                 if parsed.get("cloudflare_error") is True or not has_api_message:
                     return title
-            for key in ("message", "error", "error_message"):
+            # "detail" is how the Inbox Placement Tester (Django REST framework) reports errors.
+            for key in ("message", "error", "error_message", "detail"):
                 value = parsed.get(key)
                 if isinstance(value, str) and value.strip():
                     return _strip_error_prefix(value)
@@ -153,7 +154,11 @@ class ZeroBounce:
     EMAIL_FINDER_BASE_URL = "https://bulkapi.zerobounce.net/email-finder"
     DOMAIN_SEARCH_BASE_URL = "https://bulkapi.zerobounce.net/domain-search"
     SCORING_BASE_URL = "https://bulkapi.zerobounce.net/v2/scoring"
+    LIST_EVALUATOR_BASE_URL = "https://bulkapi.zerobounce.net/v2/listevaluator"
+    INBOX_PLACEMENT_BASE_URL = "https://bulkapi.zerobounce.net/api/ipt"
     DEFAULT_HTTP_TIMEOUT_S = 120.0
+    IPT_TEST_TYPES = (1, 2, 3)
+    IPT_TEST_STATUSES = ("running", "finished")
 
     @staticmethod
     def _require_https_url(url: str) -> str:
@@ -330,7 +335,7 @@ class ZeroBounce:
             raise type(e)(self._redact(e)) from None
         return response_class(self._read_json_payload(response))
 
-    def _request_json(self, method: str, url: str, *, params=None, data=None, files=None):
+    def _request_json(self, method: str, url: str, *, params=None, data=None, files=None, json=None):
         if params is None:
             params = {}
         if "api_key" not in params and (data is None or "api_key" not in data):
@@ -343,6 +348,7 @@ class ZeroBounce:
                 params=params,
                 data=_form_data(data),
                 files=files,
+                json=json,
                 timeout=self._timeout_s,
                 allow_redirects=False,
             )
@@ -539,6 +545,9 @@ class ZeroBounce:
         activity_data: Optional[bool] = None,
         verify_plus: Optional[bool] = None,
         use_post: bool = False,
+        domain_info: Optional[bool] = None,
+        greylist_processing: Optional[bool] = None,
+        callback_url: Optional[str] = None,
     ):
         """Validates the given email address.
 
@@ -556,6 +565,15 @@ class ZeroBounce:
             When set, sends ``verify_plus`` query parameter.
         use_post: bool
             When True, sends parameters as form-encoded POST body.
+        domain_info: bool or None
+            When True, the response adds ``domain_website_exists`` and
+            ``domain_registrant_company_name`` (website availability and WHOIS).
+        greylist_processing: bool or None
+            When True, a greylisted address is processed again instead of returned as unknown.
+            Without ``callback_url``, call ``validate`` again after about 30 minutes to pick up
+            the result; until then the response's ``message`` says it is still in progress.
+        callback_url: str or None
+            With ``greylist_processing=True``, the URL the result is sent to when it is ready.
 
         Raises
         ------
@@ -568,6 +586,10 @@ class ZeroBounce:
             Returns a ZBValidateResponse object if the request was successful
         """
         self._check_validate_timeout(timeout)
+        if callback_url is not None and greylist_processing is not True:
+            raise ZBClientException("Invalid parameter: callback_url requires greylist_processing=True")
+        if callback_url is not None and not callback_url.strip():
+            raise ZBClientException("Empty parameter: callback_url")
 
         params = {
             "email": email,
@@ -579,6 +601,12 @@ class ZeroBounce:
             params["activity_data"] = "true" if activity_data else "false"
         if verify_plus is not None:
             params["verify_plus"] = "true" if verify_plus else "false"
+        if domain_info is not None:
+            params["domain_info"] = "true" if domain_info else "false"
+        if greylist_processing is not None:
+            params["greylist_processing"] = "true" if greylist_processing else "false"
+        if callback_url is not None:
+            params["callback_url"] = callback_url
 
         if use_post:
             return self._post_form(
@@ -1231,7 +1259,7 @@ class ZeroBounce:
         with open(file_path, "rb") as file:
             files = {"file": (os.path.basename(file_path), file, "text/csv")}
             return self._post(
-                f"{self.BULK_BASE_URL}/listevaluator/",
+                f"{self.LIST_EVALUATOR_BASE_URL}/",
                 ZBSendFileResponse,
                 data=data,
                 files=files,
@@ -1251,7 +1279,7 @@ class ZeroBounce:
         }
         files = {"file": (file_name, file_stream, "text/csv")}
         return self._post(
-            f"{self.BULK_BASE_URL}/listevaluator/",
+            f"{self.LIST_EVALUATOR_BASE_URL}/",
             ZBSendFileResponse,
             data=data,
             files=files,
@@ -1262,7 +1290,7 @@ class ZeroBounce:
             raise ZBClientException("Empty parameter: file_id")
         return self._request_json(
             "GET",
-            f"{self.BULK_BASE_URL}/listevaluator/{file_id}/",
+            f"{self.LIST_EVALUATOR_BASE_URL}/{quote(file_id, safe='')}/",
             params={"api_key": self._api_key},
         )
 
@@ -1412,6 +1440,163 @@ class ZeroBounce:
         return self._post_bulk_root_form(
             "/exportS3file",
             {"file_id": file_id, "export_bucket": export_bucket},
+        )
+
+    # Inbox Placement Tester (bulkapi /api/ipt). Uses the account's inbox-test credits.
+
+    @staticmethod
+    def _ipt_test_path(test_id: Union[int, str]) -> str:
+        if test_id is None or not str(test_id).strip():
+            raise ZBClientException("Empty parameter: test_id")
+        return quote(str(test_id).strip(), safe="")
+
+    def get_inbox_placement_providers(self):
+        """Seed providers available for new tests (GET /api/ipt/providers).
+
+        Returns
+        -------
+        dict with ``emailProviders`` and ``gatewayProviders``; each has ``items`` of
+        ``{id, name, location, seedCount, seedIds}``.
+        """
+        return self._request_json("GET", f"{self.INBOX_PLACEMENT_BASE_URL}/providers")
+
+    def get_inbox_placement_test_types(self):
+        """Supported test types and the default one (GET /api/ipt/test-types)."""
+        return self._request_json("GET", f"{self.INBOX_PLACEMENT_BASE_URL}/test-types")
+
+    def create_inbox_placement_test(
+        self,
+        name: str,
+        test_type: Optional[int] = None,
+        sender_email: Optional[str] = None,
+        provider_ids: Optional[List[int]] = None,
+        seed_ids: Optional[List[int]] = None,
+        providers: Optional[List[dict]] = None,
+        webhook_url: Optional[str] = None,
+    ):
+        """Create an inbox placement test (POST /api/ipt/test). Spends one inbox test.
+
+        Parameters
+        ----------
+        name: str
+            Unique test name, at most 64 characters.
+        test_type: int or None
+            1 (Email, needs ``sender_email``), 2 (Unique ID) or 3 (Auto Alias, the API's default).
+        sender_email: str or None
+            The From address to match; required when ``test_type`` is 1.
+        provider_ids: list of int or None
+            Use every active seed of these providers.
+        seed_ids: list of int or None
+            Use these seed mailboxes.
+        providers: list of dict or None
+            ``{"id": provider_id, "maxSeeds": n}`` to cap the seeds per provider (``n`` >= 1).
+        webhook_url: str or None
+            Where the finished result is posted; also saved as this API key's webhook.
+
+        Without ``provider_ids``, ``seed_ids`` or ``providers`` the test uses every active seed.
+
+        Returns
+        -------
+        dict with ``id``, ``identifier``, ``testType`` and ``emailAddressList`` (the seeds to send to).
+        """
+        if not name or not name.strip():
+            raise ZBClientException("Empty parameter: name")
+        if len(name) > 64:
+            raise ZBClientException("Invalid parameter: name (at most 64 characters)")
+        if test_type is not None and test_type not in self.IPT_TEST_TYPES:
+            raise ZBClientException("Invalid parameter: test_type (must be 1, 2 or 3)")
+        if test_type == 1 and (not sender_email or not sender_email.strip()):
+            raise ZBClientException("Empty parameter: sender_email (required when test_type is 1)")
+        for provider in providers or []:
+            if not isinstance(provider, dict) or "id" not in provider:
+                raise ZBClientException("Invalid parameter: providers (each needs an id)")
+            max_seeds = provider.get("maxSeeds")
+            if max_seeds is not None and max_seeds < 1:
+                raise ZBClientException("Invalid parameter: providers (maxSeeds must be at least 1)")
+
+        body = {"name": name}
+        if test_type is not None:
+            body["testType"] = test_type
+        if sender_email is not None:
+            body["senderEmail"] = sender_email
+        if provider_ids is not None:
+            body["providerIds"] = list(provider_ids)
+        if seed_ids is not None:
+            body["seedIds"] = list(seed_ids)
+        if providers is not None:
+            body["providers"] = list(providers)
+        if webhook_url is not None:
+            body["webhookUrl"] = webhook_url
+        return self._request_json("POST", f"{self.INBOX_PLACEMENT_BASE_URL}/test", json=body)
+
+    def get_inbox_placement_test(self, test_id: Union[int, str]):
+        """A test and its placement results (GET /api/ipt/test/{id}).
+
+        Returns
+        -------
+        dict with ``status`` (running or finished), inbox/spam/other/not delivered/pending
+        counts, ``percentages``, ``results`` and ``seeds``.
+        """
+        path = self._ipt_test_path(test_id)
+        return self._request_json("GET", f"{self.INBOX_PLACEMENT_BASE_URL}/test/{path}")
+
+    def list_inbox_placement_tests(
+        self,
+        status: Optional[str] = None,
+        created_after: Optional[Union[date, str]] = None,
+        created_before: Optional[Union[date, str]] = None,
+        page: Optional[int] = None,
+        page_size: Optional[int] = None,
+    ):
+        """List tests, newest first (GET /api/ipt/tests).
+
+        Parameters
+        ----------
+        status: str or None
+            ``running`` or ``finished``.
+        created_after, created_before: date, datetime, ISO string or None
+            Only tests created in this range.
+        page: int or None
+            Page number, from 1.
+        page_size: int or None
+            Tests per page, 1 to 100 (the API's default is 25).
+        """
+        if status is not None and status not in self.IPT_TEST_STATUSES:
+            raise ZBClientException("Invalid parameter: status (must be running or finished)")
+        if page is not None and page < 1:
+            raise ZBClientException("Invalid parameter: page (must be at least 1)")
+        if page_size is not None and (page_size < 1 or page_size > 100):
+            raise ZBClientException("Invalid parameter: page_size (must be between 1 and 100)")
+
+        params = {}
+        if status is not None:
+            params["status"] = status
+        for key, value in (("createdAfter", created_after), ("createdBefore", created_before)):
+            if value is not None:
+                params[key] = value.isoformat() if isinstance(value, date) else value
+        if page is not None:
+            params["page"] = page
+        if page_size is not None:
+            params["page_size"] = page_size
+        return self._request_json("GET", f"{self.INBOX_PLACEMENT_BASE_URL}/tests", params=params)
+
+    def delete_inbox_placement_test(self, test_id: Union[int, str]):
+        """Delete a finished test (DELETE /api/ipt/test/{id}). A running test cannot be deleted."""
+        path = self._ipt_test_path(test_id)
+        return self._request_json("DELETE", f"{self.INBOX_PLACEMENT_BASE_URL}/test/{path}")
+
+    def get_inbox_placement_webhook(self):
+        """The webhook URL saved on this API key (GET /api/ipt/webhook); empty when none is set."""
+        return self._request_json("GET", f"{self.INBOX_PLACEMENT_BASE_URL}/webhook")
+
+    def set_inbox_placement_webhook(self, webhook_url: str):
+        """Save the URL finished test results are posted to (PUT /api/ipt/webhook). One per API key."""
+        if not webhook_url or not webhook_url.strip():
+            raise ZBClientException("Empty parameter: webhook_url")
+        return self._request_json(
+            "PUT",
+            f"{self.INBOX_PLACEMENT_BASE_URL}/webhook",
+            json={"webhookUrl": webhook_url},
         )
 
     def guess_format(

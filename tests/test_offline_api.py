@@ -26,6 +26,7 @@ from zerobouncesdk import (
     ZBClientException,
     ZBGetFileOptions,
     ZBValidateBatchElement,
+    ZBValidateResponse,
     ZeroBounce,
 )
 
@@ -172,6 +173,8 @@ class FakeTransport:
             payload = {"success": "False", "message": ["api_key is invalid"]}
             status = 401
             return _response(status, json.dumps(payload).encode(), "application/json")
+        if "/api/ipt/" in path:
+            return _response(401, json.dumps({"detail": "Invalid API key."}).encode(), "application/json")
         if "/filters/" in path:
             payload = {"Error": text}
             return _response(200, json.dumps(payload).encode(), "application/json")
@@ -333,6 +336,14 @@ class OfflineApiTest(TestCase):
             ("guess_format", lambda: self.client.guess_format("example.com", first_name="Ada"), "GET", "api.zerobounce.net", "/v2/guessformat"),
             ("find_email_format", lambda: self.client.find_email_format("Ada", domain="example.com"), "GET", "api.zerobounce.net", "/v2/guessformat"),
             ("find_domain", lambda: self.client.find_domain(domain="example.com"), "GET", "api.zerobounce.net", "/v2/guessformat"),
+            ("get_inbox_placement_providers", lambda: self.client.get_inbox_placement_providers(), "GET", "bulkapi.zerobounce.net", "/api/ipt/providers"),
+            ("get_inbox_placement_test_types", lambda: self.client.get_inbox_placement_test_types(), "GET", "bulkapi.zerobounce.net", "/api/ipt/test-types"),
+            ("create_inbox_placement_test", lambda: self.client.create_inbox_placement_test("Spring launch"), "POST", "bulkapi.zerobounce.net", "/api/ipt/test"),
+            ("get_inbox_placement_test", lambda: self.client.get_inbox_placement_test(42), "GET", "bulkapi.zerobounce.net", "/api/ipt/test/42"),
+            ("list_inbox_placement_tests", lambda: self.client.list_inbox_placement_tests(), "GET", "bulkapi.zerobounce.net", "/api/ipt/tests"),
+            ("delete_inbox_placement_test", lambda: self.client.delete_inbox_placement_test("42"), "DELETE", "bulkapi.zerobounce.net", "/api/ipt/test/42"),
+            ("get_inbox_placement_webhook", lambda: self.client.get_inbox_placement_webhook(), "GET", "bulkapi.zerobounce.net", "/api/ipt/webhook"),
+            ("set_inbox_placement_webhook", lambda: self.client.set_inbox_placement_webhook("https://hooks.example.com/ipt"), "PUT", "bulkapi.zerobounce.net", "/api/ipt/webhook"),
         ]
         for name, call, method, host, path in cases:
             self.transport.requests.clear()
@@ -378,6 +389,111 @@ class OfflineApiTest(TestCase):
         self.assertEqual(recorded.query["timeout"], "10")
         self.assertEqual(recorded.query["activity_data"], "false")
         self.assertEqual(recorded.query["verify_plus"], "false")
+
+    def test_validate_domain_info_and_greylist_options(self):
+        self.client.validate("ada@example.com")
+        recorded = self._only()
+        for name in ("domain_info", "greylist_processing", "callback_url"):
+            self.assertNotIn(name, recorded.query)
+
+        self.transport.requests.clear()
+        self.client.validate("ada@example.com", domain_info=True, greylist_processing=False)
+        recorded = self._only()
+        self.assertEqual(recorded.query["domain_info"], "true")
+        self.assertEqual(recorded.query["greylist_processing"], "false")
+        self.assertNotIn("callback_url", recorded.query)
+
+        self.transport.requests.clear()
+        self.client.validate(
+            "ada@example.com",
+            greylist_processing=True,
+            callback_url="https://hooks.example.com/zb?x=1",
+            use_post=True,
+        )
+        recorded = self._only()
+        self.assertEqual(recorded.form["greylist_processing"], "true")
+        self.assertEqual(recorded.form["callback_url"], "https://hooks.example.com/zb?x=1")
+
+    def test_validate_response_reads_domain_info_and_greylist_message(self):
+        result = ZBValidateResponse(
+            {
+                "address": "ada@example.com",
+                "status": "valid",
+                "domain_website_exists": "True",
+                "domain_registrant_company_name": "Example Inc",
+            }
+        )
+        self.assertEqual(result.domain_website_exists, "True")
+        self.assertEqual(result.domain_registrant_company_name, "Example Inc")
+        self.assertIsNone(result.message)
+
+        pending = ZBValidateResponse({"Message": "Greylist validation still in progress. Please try again later."})
+        self.assertIsNone(pending.status)
+        self.assertIn("still in progress", pending.message)
+
+    def test_list_evaluator_base_url_is_separate_and_file_id_is_encoded(self):
+        client = ZeroBounce("client-key")
+        client.LIST_EVALUATOR_BASE_URL = "https://test-members-api.zerobounce.net/api/validation/list-evaluator"
+        client.get_list_evaluator_result("a/b?c")
+        recorded = self._only()
+        self.assertEqual(recorded.host, "test-members-api.zerobounce.net")
+        self.assertIn("/api/validation/list-evaluator/a%2Fb%3Fc/", recorded.url)
+
+        self.transport.requests.clear()
+        client.send_evaluated_file(str(self._csv()))
+        self.assertEqual(self._only().path, "/v2/send-evaluated-file/")
+
+    def test_inbox_placement_create_sends_camel_case_json(self):
+        self.client.create_inbox_placement_test("Spring launch")
+        recorded = self._only()
+        self.assertEqual(recorded.json, {"name": "Spring launch"})
+        self.assertEqual(recorded.query["api_key"], "client-key")
+
+        self.transport.requests.clear()
+        self.client.create_inbox_placement_test(
+            "From match",
+            test_type=1,
+            sender_email="news@example.com",
+            provider_ids=[1, 2],
+            seed_ids=[7],
+            providers=[{"id": 1, "maxSeeds": 3}],
+            webhook_url="https://hooks.example.com/ipt",
+        )
+        self.assertEqual(
+            self._only().json,
+            {
+                "name": "From match",
+                "testType": 1,
+                "senderEmail": "news@example.com",
+                "providerIds": [1, 2],
+                "seedIds": [7],
+                "providers": [{"id": 1, "maxSeeds": 3}],
+                "webhookUrl": "https://hooks.example.com/ipt",
+            },
+        )
+
+        self.transport.requests.clear()
+        self.client.set_inbox_placement_webhook("https://hooks.example.com/ipt")
+        self.assertEqual(self._only().json, {"webhookUrl": "https://hooks.example.com/ipt"})
+
+    def test_inbox_placement_list_filters(self):
+        self.client.list_inbox_placement_tests()
+        self.assertEqual(self._only().query, {"api_key": "client-key"})
+
+        self.transport.requests.clear()
+        self.client.list_inbox_placement_tests(
+            status="finished",
+            created_after=date(2026, 10, 1),
+            created_before="2026-10-23T00:00:00Z",
+            page=2,
+            page_size=100,
+        )
+        recorded = self._only()
+        self.assertEqual(recorded.query["status"], "finished")
+        self.assertEqual(recorded.query["createdAfter"], "2026-10-01")
+        self.assertEqual(recorded.query["createdBefore"], "2026-10-23T00:00:00Z")
+        self.assertEqual(recorded.query["page"], "2")
+        self.assertEqual(recorded.query["page_size"], "100")
 
     def test_query_values_are_percent_encoded(self):
         client = ZeroBounce("key with space&plus")
@@ -471,6 +587,21 @@ class OfflineApiTest(TestCase):
             lambda: self.client.export_s3file("file-9", "  "),
             lambda: self.client.get_list_evaluator_result("  "),
             lambda: self.client.email_finder_file_status("  "),
+            lambda: self.client.validate("a@b.com", callback_url="https://hooks.example.com/zb"),
+            lambda: self.client.validate("a@b.com", greylist_processing=True, callback_url="  "),
+            lambda: self.client.create_inbox_placement_test("  "),
+            lambda: self.client.create_inbox_placement_test("x" * 65),
+            lambda: self.client.create_inbox_placement_test("t", test_type=4),
+            lambda: self.client.create_inbox_placement_test("t", test_type=1),
+            lambda: self.client.create_inbox_placement_test("t", providers=[{"maxSeeds": 2}]),
+            lambda: self.client.create_inbox_placement_test("t", providers=[{"id": 1, "maxSeeds": 0}]),
+            lambda: self.client.get_inbox_placement_test("  "),
+            lambda: self.client.get_inbox_placement_test(None),
+            lambda: self.client.delete_inbox_placement_test(""),
+            lambda: self.client.list_inbox_placement_tests(status="pending"),
+            lambda: self.client.list_inbox_placement_tests(page=0),
+            lambda: self.client.list_inbox_placement_tests(page_size=101),
+            lambda: self.client.set_inbox_placement_webhook(" "),
         ]
         for attempt in attempts:
             self.transport.requests.clear()
@@ -507,6 +638,10 @@ class OfflineApiTest(TestCase):
             lambda: client.email_finder_file_status("file-9"),
             lambda: client.email_finder_get_file("file-9", str(out) + ".f"),
             lambda: client.domain_search_get_file("file-9", str(out) + ".d"),
+            lambda: client.get_inbox_placement_providers(),
+            lambda: client.create_inbox_placement_test("Spring launch"),
+            lambda: client.get_inbox_placement_test(42),
+            lambda: client.delete_inbox_placement_test(42),
             lambda: ZeroBounce("nocredits-key").validate("a@b.com"),
         ]
         for call in raised:
@@ -524,6 +659,10 @@ class OfflineApiTest(TestCase):
         with self.assertRaises(ZBApiException) as caught:
             client.validate_batch([ZBValidateBatchElement("a@b.com")])
         self.assertIn("Invalid API Key", str(caught.exception))
+
+        with self.assertRaises(ZBApiException) as caught:
+            client.get_inbox_placement_webhook()
+        self.assertEqual(str(caught.exception), "Invalid API key.")
 
         with self.assertRaises(ZBApiException) as caught:
             client.list_s3files()

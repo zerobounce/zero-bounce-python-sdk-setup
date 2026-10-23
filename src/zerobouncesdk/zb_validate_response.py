@@ -79,8 +79,19 @@ class ZBValidateResponse(ZBResponse):
     processed_at: datetime = None
     """The UTC time the email was validated."""
 
+    domain_website_exists: str = None
+    """With domain_info: whether the domain has a website ("True", "False" or "unchecked")."""
+
+    domain_registrant_company_name: str = None
+    """With domain_info: the WHOIS registrant company, "Registrant info not found" or "unchecked"."""
+
+    message: str = None
+    """Set instead of a result while greylist processing is still running; call validate again later."""
+
     def __init__(self, data):
         super().__init__(data)
+        if self.message is None and isinstance(self.__dict__.get("Message"), str):
+            self.message = self.__dict__["Message"]
         self.status = safe_enum_convert(ZBValidateStatus, self.status, "status")
         self.sub_status = safe_enum_convert(ZBValidateSubStatus, self.sub_status, "sub_status")
         if self.processed_at is not None:
