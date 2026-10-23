@@ -9,8 +9,10 @@ Guidance for AI coding agents working in this repository.
 ## Layout
 
 - `src/zerobouncesdk/zerobouncesdk.py`: the client. `_get`, `_post`, `_post_form`, and `_request_json` are the HTTP entry points.
+- `src/zerobouncesdk/zb_warmup.py`: `ZeroBounceWarmup`, the Warmup API client. It has its own host and key, authenticates with an `API-Key` header, and reuses the error helpers in `zerobouncesdk.py`. Keep Warmup methods there, not on `ZeroBounce`.
 - `src/zerobouncesdk/zb_*.py`: response models, enums, and options.
 - `tests/zero_bounce_test_case.py`: scripted unit tests. They patch `zerobouncesdk.zerobouncesdk.requests`.
+- `tests/test_offline_edges.py` and `tests/test_warmup_offline.py`: more offline suites on the same principle (error bodies, redaction, every optional field; the Warmup API).
 - `tests/test_offline_api.py`: offline suite. It patches `requests.sessions.Session.send`, so the real `requests` client builds the URL and body and the fake answers without the network.
 - `tests/zero_bounce_integration_test.py`: live API tests. `pytest` does not collect this file. Run it with `python -m unittest tests.zero_bounce_integration_test` when `ZEROBOUNCE_API_KEY` is set.
 - `pyproject.toml`: the only version field, `version = "x.y.z"`. `setup.py` calls `setup()` and reads that file.

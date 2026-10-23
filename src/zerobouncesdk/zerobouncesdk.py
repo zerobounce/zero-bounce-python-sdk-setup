@@ -112,6 +112,11 @@ def _message_from_body(body: str, status_code: int) -> str:
                     return _strip_error_prefix(value)
                 if isinstance(value, list) and value and isinstance(value[0], str) and value[0].strip():
                     return _strip_error_prefix(value[0])
+                # A validation error list: [{"loc": ["body", "field"], "msg": "...", ...}, ...].
+                if isinstance(value, list) and value and isinstance(value[0], dict) and value[0].get("msg"):
+                    loc = value[0].get("loc")
+                    field = ".".join(str(part) for part in loc[1:]) if isinstance(loc, list) and len(loc) > 1 else ""
+                    return f"{field}: {value[0]['msg']}" if field else str(value[0]["msg"])
         if len(trimmed) > 500:
             return "ZeroBounce returned an error (HTTP %s)." % status_code
         return trimmed
@@ -169,7 +174,7 @@ class ZeroBounce:
             raise ZBClientException("base_url must be an https:// URL")
         return url.rstrip("/")
 
-    def __init__(self, api_key: str, base_url: Optional[Union[ZBApiUrl, str]] = None, timeout: timedelta | None = None):
+    def __init__(self, api_key: str, base_url: Optional[Union[ZBApiUrl, str]] = None, timeout: Optional[timedelta] = None):
         """Initialize the ZeroBounce client.
 
         Parameters

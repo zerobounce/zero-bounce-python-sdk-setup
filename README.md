@@ -523,6 +523,42 @@ except ZBException as e:
     print("ZeroBounce inbox placement error: " + str(e))
 ```
 
+### Warmup API
+
+The [Warmup API](https://www.zerobounce.net/docs/warmup-api) has its own client: it uses a Warmup API key (bound to one team) in an `API-Key` header and its own host. Pass the base URL ZeroBounce gave you if it differs from the default `https://warmup-api.zerobounce.net`.
+
+```python
+from zerobouncesdk import ZeroBounceWarmup, ZBException, ZBApiException
+
+warmup = ZeroBounceWarmup("<YOUR_WARMUP_API_KEY>")
+
+try:
+    print(warmup.get_engagement_rules())                       # -1 Custom, 0 Default ... 4 Protect
+    warmup.add_sending_account("sender@example.com", "self_managed", engagement_rule_id=0)
+    warmup.add_sending_account(
+        "news@example.com",
+        "zb_managed",
+        email_content={"company_name": "Acme", "types_of_emails": ["newsletter"]},
+        managed_sending={"weekdays_only": True, "timezone_offset": 3.0, "warmup_start_date": "2026-11-02"},
+    )
+    print(warmup.get_sending_account("sender@example.com"))
+    print(warmup.check_domain_dmarc("example.com", dkim_selector="default"))
+    warmup.set_engagement_rule("sender@example.com", 1)        # returns None (HTTP 204)
+    warmup.create_custom_engagement("sender@example.com", reply_pct=20, important_pct=25, click_pct=25)
+    print(warmup.get_statistics_per_day("sender@example.com", "2026-10-01", "2026-10-14"))
+    csv_text = warmup.download_statistics("sender@example.com", "./stats.csv")
+    warmup.update_sending_account("sender@example.com", engagement_rule_id=0, status_id=4, auto_enable=False)  # 4 = Paused
+except ZBApiException as e:
+    if e.status_code == 429:                                   # rate limit, or the custom-rule 7 day cooldown
+        print("Try again later: " + str(e))
+    else:
+        print("ZeroBounce warmup error: " + str(e))
+except ZBException as e:
+    print("ZeroBounce warmup error: " + str(e))
+```
+
+Every documented endpoint has a method: sending accounts (`list_sending_accounts`, `get_sending_account`, `add_sending_account`, `update_sending_account`, `delete_sending_account`, `change_from_address`, `list_from_addresses`), engagement (`get_engagement_rules`, `set_engagement_rule`, `get_custom_engagement`, `create_custom_engagement`, `update_custom_engagement`, `delete_custom_engagement`), and statistics and utilities (`get_seeds`, `download_seeds`, `get_seed_count`, `get_progress_today`, `get_sent_today`, `get_emails_per_day`, `get_statistics`, `get_statistics_per_day`, `get_statistics_detailed`, `download_statistics`, `get_from_address_statistics`, `check_domain_dmarc`, `test_smtp_configuration`). Calls the API answers with 204 or an empty body return `None`; the two CSV downloads return the CSV text.
+
 ### Other hosts
 
 `base_url` sets the host of the single-request API (validate, scoring, email finder, filters). The bulk APIs have their own class attributes, which you can set on an instance:

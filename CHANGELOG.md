@@ -23,6 +23,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `get_credits`, `get_api_usage`, `get_activity`, `find_email_format`, and `find_domain` take `use_post=True` (form-encoded `POST`, which the API accepts since September 2026).
 - `ZBValidateSubStatus.ai_agent_mailbox`, documented for `valid` and `catch-all` results.
 - `ZBGetActivityResponse.active_first_seen`, and `ZBGetApiUsageResponse` counts for `leading_period_removed` and `alias_address`.
+- `ZeroBounceWarmup`, a client for the Warmup API (https://www.zerobounce.net/docs/warmup-api) with a method for each of its 26 endpoints. It sends a Warmup API key in the `API-Key` header to `https://warmup-api.zerobounce.net` (or the base URL you pass), checks the documented ranges before sending, returns `None` for 204 and empty successes, and returns CSV text for the two downloads.
+- `ZBApiException.status_code`: the HTTP status, set by `ZeroBounceWarmup` so callers can back off on 429.
 - `LIST_EVALUATOR_BASE_URL` and `INBOX_PLACEMENT_BASE_URL` set where the list evaluator and Inbox Placement Tester requests go, like `BULK_BASE_URL` for the other bulk files.
 
 ### Changed
@@ -41,7 +43,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `send_file`, `scoring_send_file`, bulk email finder, domain search, and S3 uploads send `has_header_row`, `remove_duplicate`, and `remove_duplicates` as `true` or `false`. `has_header_row=False` is sent.
 - `send_email_finder_file`, `send_domain_search_file`, and `send_list_evaluator_file` send column `0`. They previously treated `0` as empty and rejected it before the request.
 - `find_email_format` raises `ZBApiException` when the API returns a `Message` error, the same way `find_domain` and `guess_format` already did.
+- Importing the SDK works on Python 3.7 to 3.9 again. `ZeroBounce.__init__` was annotated with `timedelta | None`, which raised `TypeError` at import on those versions.
 - `find_domain` and `guess_format` raise `ZBApiException` for a lowercase `message` error instead of `KeyError`.
+- A validation error body `{"detail": [{"loc": ..., "msg": ...}]}` raises with the field and message instead of the raw JSON.
 - An unknown `email_confidence` or `confidence` value is `None` with a warning instead of a `ValueError`.
 - `ZBValidateResponse` reads `free_email`, `mx_found`, and `catchall_domain` sent as the strings `"true"` / `"false"` as booleans (the documented samples send `mx_found` as a string).
 - `processed_at` without fractional seconds, and `get_api_usage` dates in the documented `yyyy/mm/dd` form, parse instead of raising `ValueError`. A date in another format is kept as the original string, with a warning.
