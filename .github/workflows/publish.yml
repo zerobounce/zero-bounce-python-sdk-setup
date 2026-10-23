@@ -126,9 +126,9 @@ jobs:
         run: python -m build
 
       - name: Publish to PyPI
+        # Trusted Publishing: no stored token. PyPI accepts a short-lived OIDC token from this workflow
+        # (publish.yml, environment "release"), which is why the job has id-token: write.
         uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
-        with:
-          password: ${{ secrets.PYPI_API_TOKEN }}
 
   release:
     name: Create GitHub Release

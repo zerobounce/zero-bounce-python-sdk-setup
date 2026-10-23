@@ -63,4 +63,4 @@ Publishing and pushing tags need a maintainer's explicit approval. Do not bump t
 1. Move `[Unreleased]` entries under `## [x.y.z] - YYYY-MM-DD`, leave an empty `[Unreleased]` section, and update the compare links at the bottom of `CHANGELOG.md`.
 2. Set the same version in `pyproject.toml` (`version = "x.y.z"`). The publish workflow fails if it differs from the tag. That is the only version field. There is no runtime `__version__` and no user-agent constant. `setup.py` does not contain a version.
 3. `ruff check src tests`, `python -m compileall -q src tests`, and `python -m pytest`.
-4. Tag `vx.y.z` on that commit and run the Publish workflow (`.github/workflows/publish.yml`) with that tag. It publishes `zerobouncesdk` to PyPI.
+4. Tag `vx.y.z` on that commit and run the Publish workflow (`.github/workflows/publish.yml`) with that tag. It publishes `zerobouncesdk` to PyPI through PyPI Trusted Publishing (publisher: this repository, `publish.yml`, environment `release`); there is no PyPI token secret.
