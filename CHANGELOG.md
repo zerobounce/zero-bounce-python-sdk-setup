@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Bulk domain search (`send_domain_search_file`, `domain_search_file_status`, `domain_search_get_file`, `domain_search_delete_file`, plus stream upload).
 - List evaluator (`send_list_evaluator_file`, `get_list_evaluator_result`, `send_evaluated_file`).
 - Filters (`add_filter`, `list_filters`, `delete_filter`).
+- S3 bulk (`validate_s3file`, `score_s3file`, `export_s3file`, `list_s3files`).
 - `validate` takes `domain_info` (website availability and WHOIS), `greylist_processing`, and `callback_url` (requires `greylist_processing=True`). `ZBValidateResponse` reads `domain_website_exists` and `domain_registrant_company_name`, and `message` while a greylist retry is still in progress.
 - Inbox Placement Tester (`get_inbox_placement_providers`, `get_inbox_placement_test_types`, `create_inbox_placement_test`, `get_inbox_placement_test`, `list_inbox_placement_tests`, `delete_inbox_placement_test`, `get_inbox_placement_webhook`, `set_inbox_placement_webhook`) on `bulkapi.zerobounce.net/api/ipt`. Its `detail` error messages raise `ZBApiException` with that text.
 - `LIST_EVALUATOR_BASE_URL` and `INBOX_PLACEMENT_BASE_URL` set where the list evaluator and Inbox Placement Tester requests go, like `BULK_BASE_URL` for the other bulk files.
@@ -32,7 +33,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A 403 HTML "Access denied" page (about 1.4 MB from the live API on `get_file`) is raised as a short `ZBApiException`. An HTML page with status 200 is an error as well, including `get_file`, `email_finder_get_file`, and `domain_search_get_file`, instead of a saved CSV.
 - Empty and non-JSON bodies are a short `ZBApiException`. The message is no longer a chained `JSONDecodeError`, and a doubled `Error: Error:` / `[Error]: [Error]:` prefix is collapsed to one.
 - `validate_batch` raises `ZBApiException` for an account-level failure (HTTP 200, error for address `all`, such as an invalid API key or no credits). An error for one address stays on the successful result.
-- `send_file`, `scoring_send_file`, bulk email finder, and domain search uploads send `has_header_row`, `remove_duplicate`, and `remove_duplicates` as `true` or `false`. `has_header_row=False` is sent.
+- `send_file`, `scoring_send_file`, bulk email finder, domain search, and S3 uploads send `has_header_row`, `remove_duplicate`, and `remove_duplicates` as `true` or `false`. `has_header_row=False` is sent.
 - `send_email_finder_file`, `send_domain_search_file`, and `send_list_evaluator_file` send column `0`. They previously treated `0` as empty and rejected it before the request.
 - `find_email_format` raises `ZBApiException` when the API returns a `Message` error, the same way `find_domain` and `guess_format` already did.
 

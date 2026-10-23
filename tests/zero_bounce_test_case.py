@@ -174,6 +174,15 @@ class ZeroBounceTestCase(BaseTestCase):
         self.assertEqual(data["email"], "a@b.com")
         self.assertEqual(data["timeout"], 30)
 
+    def test_list_s3files_gets_bulk_root(self):
+        self.requests_mock.request.return_value = MockResponse(
+            [{"name": "uploads/a.csv", "size": 10, "last_modified": "2024-01-01T00:00:00Z"}]
+        )
+        result = self.zero_bounce_client.list_s3files(bucket="my-bucket", search="a")
+        self.assertEqual(result[0]["name"], "uploads/a.csv")
+        called_url = self.requests_mock.request.call_args[0][1]
+        self.assertIn("bulkapi.zerobounce.net/listS3files", called_url)
+
     def test_validate_timeout_out_of_range(self):
         with self.assertRaises(ZBClientException):
             self.zero_bounce_client.validate("a@b.com", timeout=2)
@@ -753,6 +762,14 @@ class ZeroBounceTestCase(BaseTestCase):
         self.assertTrue(url.endswith("/filters/add"))
         data = self.requests_mock.request.call_args[1]["data"]
         self.assertEqual(data["rule"], "allow")
+
+    def test_validate_s3file_posts_to_bulk_root(self):
+        self.requests_mock.post.return_value = MockResponse({"success": True, "file_id": "s3-1"})
+        self.zero_bounce_client.validate_s3file(
+            "lists/jan.csv", has_header_row=True, remove_duplicates=True
+        )
+        url = self.requests_mock.post.call_args[0][0]
+        self.assertEqual(url, "https://bulkapi.zerobounce.net/validateS3file")
 
     def test_get_list_evaluator_result_url(self):
         self.requests_mock.request.return_value = MockResponse({"file_status": "Complete"})

@@ -150,6 +150,7 @@ class ZeroBounce:
     """The ZeroBounce main class. All the requests are implemented here."""
 
     BULK_BASE_URL = "https://bulkapi.zerobounce.net/v2"
+    BULK_ROOT_URL = "https://bulkapi.zerobounce.net"
     EMAIL_FINDER_BASE_URL = "https://bulkapi.zerobounce.net/email-finder"
     DOMAIN_SEARCH_BASE_URL = "https://bulkapi.zerobounce.net/domain-search"
     SCORING_BASE_URL = "https://bulkapi.zerobounce.net/v2/scoring"
@@ -417,6 +418,15 @@ class ZeroBounce:
             f"{base_url}/deletefile",
             ZBDeleteFileResponse,
             params={"file_id": file_id},
+        )
+
+    def _post_bulk_root_form(self, path: str, fields: dict) -> ZBSendFileResponse:
+        data = dict(fields)
+        data["api_key"] = self._api_key
+        return self._post(
+            f"{self.BULK_ROOT_URL}{path}",
+            ZBSendFileResponse,
+            data=data,
         )
 
     def get_credits(self):
@@ -1336,6 +1346,100 @@ class ZeroBounce:
                 "target": target,
                 "value": value,
             },
+        )
+
+    # Priority 3 — S3 bulk helpers (bulkapi root)
+
+    def list_s3files(
+        self,
+        bucket: str = None,
+        search: str = None,
+    ):
+        """List S3 bucket files available for validation or scoring (GET /listS3files)."""
+        params = {}
+        if bucket is not None:
+            params["bucket"] = bucket
+        if search is not None:
+            params["search"] = search
+        payload = self._request_json(
+            "GET",
+            f"{self.BULK_ROOT_URL}/listS3files",
+            params=params,
+        )
+        if isinstance(payload, dict) and payload.get("error"):
+            raise ZBApiException(payload["error"])
+        if not isinstance(payload, list):
+            raise ZBApiException("Unexpected listS3files response")
+        return payload
+
+    def validate_s3file(
+        self,
+        file_name: str,
+        has_header_row: bool = None,
+        remove_duplicates: bool = None,
+        remove_duplicate: bool = None,
+        email_address_column: int = None,
+        return_url: str = None,
+        first_name_column: int = None,
+        last_name_column: int = None,
+        gender_column: int = None,
+        ip_address_column: int = None,
+        allow_phase_2: Optional[bool] = None,
+    ) -> ZBSendFileResponse:
+        if not file_name or not file_name.strip():
+            raise ZBClientException("Empty parameter: file_name")
+        fields = {"file_name": file_name}
+        if has_header_row is not None:
+            fields["has_header_row"] = has_header_row
+        if remove_duplicates is not None:
+            fields["remove_duplicates"] = remove_duplicates
+        if remove_duplicate is not None:
+            fields["remove_duplicate"] = remove_duplicate
+        if email_address_column is not None:
+            fields["email_address_column"] = email_address_column
+        if return_url is not None:
+            fields["return_url"] = return_url
+        if first_name_column is not None:
+            fields["first_name_column"] = first_name_column
+        if last_name_column is not None:
+            fields["last_name_column"] = last_name_column
+        if gender_column is not None:
+            fields["gender_column"] = gender_column
+        if ip_address_column is not None:
+            fields["ip_address_column"] = ip_address_column
+        if allow_phase_2 is not None:
+            fields["allow_phase_2"] = "true" if allow_phase_2 else "false"
+        return self._post_bulk_root_form("/validateS3file", fields)
+
+    def score_s3file(
+        self,
+        file_name: str,
+        has_header_row: bool = None,
+        remove_duplicates: bool = None,
+        remove_duplicate: bool = None,
+        email_address_column: int = None,
+    ) -> ZBSendFileResponse:
+        if not file_name or not file_name.strip():
+            raise ZBClientException("Empty parameter: file_name")
+        fields = {"file_name": file_name}
+        if has_header_row is not None:
+            fields["has_header_row"] = has_header_row
+        if remove_duplicates is not None:
+            fields["remove_duplicates"] = remove_duplicates
+        if remove_duplicate is not None:
+            fields["remove_duplicate"] = remove_duplicate
+        if email_address_column is not None:
+            fields["email_address_column"] = email_address_column
+        return self._post_bulk_root_form("/scoreS3file", fields)
+
+    def export_s3file(self, file_id: str, export_bucket: str) -> ZBSendFileResponse:
+        if not file_id.strip():
+            raise ZBClientException("Empty parameter: file_id")
+        if not export_bucket or not export_bucket.strip():
+            raise ZBClientException("Empty parameter: export_bucket")
+        return self._post_bulk_root_form(
+            "/exportS3file",
+            {"file_id": file_id, "export_bucket": export_bucket},
         )
 
     # Inbox Placement Tester (bulkapi /api/ipt). Uses the account's inbox-test credits.
