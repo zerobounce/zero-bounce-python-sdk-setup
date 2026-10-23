@@ -169,7 +169,7 @@ class FakeTransport:
         if path.endswith("/sendfile") or path.rstrip("/").endswith("listevaluator") or "send-evaluated-file" in path:
             payload = {"success": "False", "message": ["api_key is invalid"]}
             return _response(401, json.dumps(payload).encode(), "application/json")
-        if path.endswith("/listS3files") or "S3file" in path or path.rstrip("/").endswith("listevaluator") or "/listevaluator/" in path:
+        if path.rstrip("/").endswith("listevaluator") or "/listevaluator/" in path:
             payload = {"success": "False", "message": ["api_key is invalid"]}
             status = 401
             return _response(status, json.dumps(payload).encode(), "application/json")
@@ -215,7 +215,7 @@ class FakeTransport:
             }
         if path.endswith("/deletefile"):
             return {"success": True, "message": "File Deleted", "file_id": recorded.field("file_id"), "file_name": "emails.csv", **echo}
-        if path.endswith("/sendfile") or "listevaluator" in path or "send-evaluated-file" in path or path.endswith("S3file"):
+        if path.endswith("/sendfile") or "listevaluator" in path or "send-evaluated-file" in path:
             return {"success": True, "message": "File Accepted", "file_id": "file-1", "file_name": "emails.csv", **echo}
         if path.endswith("/guessformat"):
             return {
@@ -234,8 +234,6 @@ class FakeTransport:
             }
         if "/filters/" in path:
             return {"Message": "Filter successfully added", **echo}
-        if path.endswith("/listS3files"):
-            return [{"name": "uploads/a.csv", "echo_key": key}]
         if "/listevaluator/" in path:
             return {"file_status": "Complete", **echo}
         return {"ok": True, **echo}
@@ -329,10 +327,6 @@ class OfflineApiTest(TestCase):
             ("list_filters", lambda: self.client.list_filters(), "GET", "api.zerobounce.net", "/v2/filters/list"),
             ("list_filters_post", lambda: self.client.list_filters(use_post=True), "POST", "api.zerobounce.net", "/v2/filters/list"),
             ("delete_filter", lambda: self.client.delete_filter("allow", "domain", "example.com"), "POST", "api.zerobounce.net", "/v2/filters/delete"),
-            ("list_s3files", lambda: self.client.list_s3files(bucket="b", search="a"), "GET", "bulkapi.zerobounce.net", "/listS3files"),
-            ("validate_s3file", lambda: self.client.validate_s3file("lists/jan.csv"), "POST", "bulkapi.zerobounce.net", "/validateS3file"),
-            ("score_s3file", lambda: self.client.score_s3file("lists/jan.csv"), "POST", "bulkapi.zerobounce.net", "/scoreS3file"),
-            ("export_s3file", lambda: self.client.export_s3file("file-9", "export-bucket"), "POST", "bulkapi.zerobounce.net", "/exportS3file"),
             ("guess_format", lambda: self.client.guess_format("example.com", first_name="Ada"), "GET", "api.zerobounce.net", "/v2/guessformat"),
             ("find_email_format", lambda: self.client.find_email_format("Ada", domain="example.com"), "GET", "api.zerobounce.net", "/v2/guessformat"),
             ("find_domain", lambda: self.client.find_domain(domain="example.com"), "GET", "api.zerobounce.net", "/v2/guessformat"),
@@ -534,15 +528,6 @@ class OfflineApiTest(TestCase):
         self.assertEqual(self._only().form["email_address_column"], "0")
 
         self.transport.requests.clear()
-        self.client.validate_s3file("a.csv", email_address_column=0, has_header_row=False, remove_duplicate=False, allow_phase_2=False)
-        recorded = self._only()
-        self.assertEqual(recorded.form["email_address_column"], "0")
-        self.assertEqual(recorded.form["has_header_row"], "false")
-        self.assertEqual(recorded.form["remove_duplicate"], "false")
-        self.assertEqual(recorded.form["allow_phase_2"], "false")
-        self.assertNotIn("remove_duplicates", recorded.form)
-
-        self.transport.requests.clear()
         self.client.scoring_send_file(str(csv), 1, has_header_row=True, remove_duplicate=True)
         recorded = self._only()
         self.assertEqual(recorded.form["has_header_row"], "true")
@@ -582,9 +567,6 @@ class OfflineApiTest(TestCase):
             lambda: self.client.find_domain(domain="example.com", company_name="Acme"),
             lambda: self.client.add_filter("", "domain", "example.com"),
             lambda: self.client.delete_filter("allow", "", "example.com"),
-            lambda: self.client.validate_s3file("  "),
-            lambda: self.client.export_s3file("  ", "bucket"),
-            lambda: self.client.export_s3file("file-9", "  "),
             lambda: self.client.get_list_evaluator_result("  "),
             lambda: self.client.email_finder_file_status("  "),
             lambda: self.client.validate("a@b.com", callback_url="https://hooks.example.com/zb"),
@@ -630,7 +612,6 @@ class OfflineApiTest(TestCase):
             lambda: client.send_file(str(csv), 1),
             lambda: client.list_filters(),
             lambda: client.add_filter("block", "domain", "x.com"),
-            lambda: client.list_s3files(),
             lambda: client.find_email_format("Ada", domain="example.com"),
             lambda: client.find_domain(domain="example.com"),
             lambda: client.guess_format("example.com"),
@@ -665,7 +646,7 @@ class OfflineApiTest(TestCase):
         self.assertEqual(str(caught.exception), "Invalid API key.")
 
         with self.assertRaises(ZBApiException) as caught:
-            client.list_s3files()
+            client.send_file(str(csv), 1)
         self.assertEqual(str(caught.exception), "api_key is invalid")
 
         with self.assertRaises(ZBApiException) as caught:
