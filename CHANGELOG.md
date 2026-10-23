@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.3.0] - 2026-10-24
+
 ### Added
 
 - `validate` takes `timeout` (3–60 seconds), `activity_data`, `verify_plus`, and `use_post` (form-encoded `POST /validate`).
@@ -156,7 +158,8 @@ No changes to the package; CI action updates only.
 
 - Initial release: `get_credits`, `get_api_usage`, `get_activity`, `validate`, `validate_batch`, bulk and AI-scoring file methods, and `guess_format`.
 
-[Unreleased]: https://github.com/zerobounce/zero-bounce-python-sdk-setup/compare/v2.2.4...HEAD
+[Unreleased]: https://github.com/zerobounce/zero-bounce-python-sdk-setup/compare/v2.3.0...HEAD
+[2.3.0]: https://github.com/zerobounce/zero-bounce-python-sdk-setup/compare/v2.2.4...v2.3.0
 [2.2.4]: https://github.com/zerobounce/zero-bounce-python-sdk-setup/compare/v2.2.3...v2.2.4
 [2.2.3]: https://github.com/zerobounce/zero-bounce-python-sdk-setup/compare/v2.2.2...v2.2.3
 [2.2.2]: https://github.com/zerobounce/zero-bounce-python-sdk-setup/compare/v2.2.0...v2.2.2
