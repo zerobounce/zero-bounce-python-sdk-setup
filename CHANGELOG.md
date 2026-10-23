@@ -10,23 +10,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - `validate` takes `timeout` (3–60 seconds), `activity_data`, `verify_plus`, and `use_post` (form-encoded `POST /validate`).
-- `validate_batch` takes `timeout` (10–120 seconds), `activity_data`, and `verify_plus`.
+- `validate_batch` takes `timeout` (10–120 seconds; sent as a string, which the live API requires), `activity_data`, and `verify_plus`.
 - `ZBValidateResponse` reads `active_in_days` and `active_first_seen`.
 - `score_email` (`GET /scoring`) and `score_email(..., use_post=True)` (form-encoded `POST /scoring`).
 - Bulk email finder (`send_email_finder_file`, `email_finder_file_status`, `email_finder_get_file`, `email_finder_delete_file`, plus stream upload).
 - Bulk domain search (`send_domain_search_file`, `domain_search_file_status`, `domain_search_get_file`, `domain_search_delete_file`, plus stream upload).
-- List evaluator (`send_list_evaluator_file`, `get_list_evaluator_result`, `send_evaluated_file`). Uploads and results return `ZBListEvaluatorResponse` (`file_id`, `status`, `progress`, the percentages, `abuse`, `do_not_mail`, `spam_trap`).
+- List evaluator (`send_list_evaluator_file`, `get_list_evaluator_result`, `send_evaluated_file`). `send_evaluated_file(file_id)` submits a finished evaluation for validation by the evaluator's `file_id`, as the live API requires (the docs describe a file upload). Uploads and results return `ZBListEvaluatorResponse` (`file_id`, `status`, `progress`, the percentages, `abuse`, `do_not_mail`, `spam_trap`).
 - Filters (`add_filter`, `list_filters`, `delete_filter`). `rule` must be `allow` or `block` and `target` `email`, `domain`, `mx`, or `tld`.
-- Amazon S3 bulk (`list_s3files`, `validate_s3file`, `score_s3file`, `email_finder_s3file`, `domain_search_s3file`, `export_s3file`) and SFTP/FTP bulk (`validate_sftpfile`, `score_sftpfile`, `email_finder_sftpfile`, `domain_search_sftpfile`, `export_sftpfile`). Each job sends the documented `file_name`, `has_header_row` (required), `remove_duplicates`, and `return_url`. The export bucket and path are optional; without them your account settings are used.
+- Amazon S3 bulk (`list_s3files`, `validate_s3file`, `score_s3file`, `email_finder_s3file`, `domain_search_s3file`, `export_s3file`) and SFTP/FTP bulk (`validate_sftpfile`, `score_sftpfile`, `email_finder_sftpfile`, `domain_search_sftpfile`, `export_sftpfile`). Each job sends `file_name`, `has_header_row`, `remove_duplicates`, and `return_url`; `file_name`, `has_header_row`, and `return_url` are required because the live API rejects jobs without them. The export bucket and path are optional; without them your account settings are used.
 - `validate` takes `domain_info` (website availability and WHOIS), `greylist_processing`, and `callback_url` (requires `greylist_processing=True`). `ZBValidateResponse` reads `domain_website_exists` and `domain_registrant_company_name`, and `message` while a greylist retry is still in progress.
 - Inbox Placement Tester (`get_inbox_placement_providers`, `get_inbox_placement_test_types`, `create_inbox_placement_test`, `get_inbox_placement_test`, `list_inbox_placement_tests`, `delete_inbox_placement_test`, `get_inbox_placement_webhook`, `set_inbox_placement_webhook`) on `bulkapi.zerobounce.net/api/ipt`. Its `detail` error messages raise `ZBApiException` with that text.
 - `get_credits`, `get_api_usage`, `get_activity`, `find_email_format`, and `find_domain` take `use_post=True` (form-encoded `POST`, which the API accepts since September 2026).
 - `ZBValidateSubStatus.ai_agent_mailbox`, documented for `valid` and `catch-all` results.
 - `ZBGetActivityResponse.active_first_seen`, and `ZBGetApiUsageResponse` counts for `leading_period_removed` and `alias_address`.
-- `ZeroBounceWarmup`, a client for the Warmup API (https://www.zerobounce.net/docs/warmup-api) with a method for each of its 26 endpoints. It sends a Warmup API key in the `API-Key` header to `https://warmup-api.zerobounce.net` (or the base URL you pass), checks the documented ranges before sending, returns `None` for 204 and empty successes, and returns CSV text for the two downloads.
+- `ZeroBounceWarmup`, a client for the Warmup API (https://www.zerobounce.net/docs/warmup-api) with a method for each of its 26 endpoints. `check_domain_dmarc` takes an email address, as the live API requires. It sends a Warmup API key in the `API-Key` header to `https://warmup-api.zerobounce.net` (or the base URL you pass), checks the documented ranges before sending, returns `None` for 204 and empty successes, and returns CSV text for the two downloads.
 - `get_file`, `scoring_get_file`, `email_finder_get_file`, and `domain_search_get_file` take `stream=True` to write a result file in chunks instead of reading it into memory first. The file appears at `download_path` only once complete, so a failed download leaves an existing file untouched and no partial file behind. Without the flag, downloads behave as before.
 - A `UserWarning`, once per client, when an EU or US `base_url` is set but a request goes to `bulkapi.zerobounce.net` (bulk, scoring and finder files, the list evaluator, S3/SFTP, the Inbox Placement Tester): ZeroBounce documents no regional bulk host.
-- `ZBApiException.status_code`: the HTTP status, set by `ZeroBounceWarmup` so callers can back off on 429.
+- `ZBApiException.status_code`: the HTTP status of a failed response, from both clients (for example 429 from the Warmup API, 403 when Cloudflare blocks a request).
 - `LIST_EVALUATOR_BASE_URL` and `INBOX_PLACEMENT_BASE_URL` set where the list evaluator and Inbox Placement Tester requests go, like `BULK_BASE_URL` for the other bulk files.
 
 ### Changed
@@ -50,6 +50,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Importing the SDK works on Python 3.7 to 3.9 again. `ZeroBounce.__init__` was annotated with `timedelta | None`, which raised `TypeError` at import on those versions.
 - `find_domain` and `guess_format` raise `ZBApiException` for a lowercase `message` error instead of `KeyError`.
 - A validation error body `{"detail": [{"loc": ..., "msg": ...}]}` raises with the field and message instead of the raw JSON.
+- An error body that is a JSON list of messages (`["In-progress tests cannot be deleted."]`) raises with the first message instead of the raw JSON.
 - An unknown `email_confidence` or `confidence` value is `None` with a warning instead of a `ValueError`.
 - `ZBValidateResponse` reads `free_email`, `mx_found`, and `catchall_domain` sent as the strings `"true"` / `"false"` as booleans (the documented samples send `mx_found` as a string).
 - `processed_at` without fractional seconds, and `get_api_usage` dates in the documented `yyyy/mm/dd` form, parse instead of raising `ValueError`. A date in another format is kept as the original string, with a warning.

@@ -330,21 +330,21 @@ class OfflineApiTest(TestCase):
             ("send_list_evaluator_file", lambda: self.client.send_list_evaluator_file(str(csv), 1), "POST", "bulkapi.zerobounce.net", "/v2/listevaluator/"),
             ("send_list_evaluator_file_stream", lambda: self.client.send_list_evaluator_file_stream(BytesIO(b"a@b.com\n"), "l.csv", 1), "POST", "bulkapi.zerobounce.net", "/v2/listevaluator/"),
             ("get_list_evaluator_result", lambda: self.client.get_list_evaluator_result("file-9"), "GET", "bulkapi.zerobounce.net", "/v2/listevaluator/file-9/"),
-            ("send_evaluated_file", lambda: self.client.send_evaluated_file(str(csv)), "POST", "bulkapi.zerobounce.net", "/v2/send-evaluated-file/"),
+            ("send_evaluated_file", lambda: self.client.send_evaluated_file("file-9"), "POST", "bulkapi.zerobounce.net", "/v2/send-evaluated-file/"),
             ("add_filter", lambda: self.client.add_filter("allow", "domain", "example.com"), "POST", "api.zerobounce.net", "/v2/filters/add"),
             ("list_filters", lambda: self.client.list_filters(), "GET", "api.zerobounce.net", "/v2/filters/list"),
             ("list_filters_post", lambda: self.client.list_filters(use_post=True), "POST", "api.zerobounce.net", "/v2/filters/list"),
             ("delete_filter", lambda: self.client.delete_filter("allow", "domain", "example.com"), "POST", "api.zerobounce.net", "/v2/filters/delete"),
             ("list_s3files", lambda: self.client.list_s3files(bucket="b", search="a"), "GET", "bulkapi.zerobounce.net", "/listS3files"),
-            ("validate_s3file", lambda: self.client.validate_s3file("lists/jan.csv", True), "POST", "bulkapi.zerobounce.net", "/validateS3file"),
-            ("score_s3file", lambda: self.client.score_s3file("lists/jan.csv", True), "POST", "bulkapi.zerobounce.net", "/scoreS3file"),
+            ("validate_s3file", lambda: self.client.validate_s3file("lists/jan.csv", True, return_url="https://example.com/cb"), "POST", "bulkapi.zerobounce.net", "/validateS3file"),
+            ("score_s3file", lambda: self.client.score_s3file("lists/jan.csv", True, return_url="https://example.com/cb"), "POST", "bulkapi.zerobounce.net", "/scoreS3file"),
             ("export_s3file", lambda: self.client.export_s3file("file-9", "export-bucket"), "POST", "bulkapi.zerobounce.net", "/exportS3file"),
-            ("email_finder_s3file", lambda: self.client.email_finder_s3file("lists/people.csv", True), "POST", "bulkapi.zerobounce.net", "/emailFinderS3file"),
-            ("domain_search_s3file", lambda: self.client.domain_search_s3file("lists/domains.csv", True), "POST", "bulkapi.zerobounce.net", "/domainSearchS3file"),
-            ("validate_sftpfile", lambda: self.client.validate_sftpfile("my_file.txt", True), "POST", "bulkapi.zerobounce.net", "/validateSFTPfile"),
-            ("score_sftpfile", lambda: self.client.score_sftpfile("my_file.txt", True), "POST", "bulkapi.zerobounce.net", "/scoreSFTPfile"),
-            ("email_finder_sftpfile", lambda: self.client.email_finder_sftpfile("my_file.txt", True), "POST", "bulkapi.zerobounce.net", "/emailFinderSFTPfile"),
-            ("domain_search_sftpfile", lambda: self.client.domain_search_sftpfile("my_file.txt", True), "POST", "bulkapi.zerobounce.net", "/domainSearchSFTPfile"),
+            ("email_finder_s3file", lambda: self.client.email_finder_s3file("lists/people.csv", True, return_url="https://example.com/cb"), "POST", "bulkapi.zerobounce.net", "/emailFinderS3file"),
+            ("domain_search_s3file", lambda: self.client.domain_search_s3file("lists/domains.csv", True, return_url="https://example.com/cb"), "POST", "bulkapi.zerobounce.net", "/domainSearchS3file"),
+            ("validate_sftpfile", lambda: self.client.validate_sftpfile("my_file.txt", True, return_url="https://example.com/cb"), "POST", "bulkapi.zerobounce.net", "/validateSFTPfile"),
+            ("score_sftpfile", lambda: self.client.score_sftpfile("my_file.txt", True, return_url="https://example.com/cb"), "POST", "bulkapi.zerobounce.net", "/scoreSFTPfile"),
+            ("email_finder_sftpfile", lambda: self.client.email_finder_sftpfile("my_file.txt", True, return_url="https://example.com/cb"), "POST", "bulkapi.zerobounce.net", "/emailFinderSFTPfile"),
+            ("domain_search_sftpfile", lambda: self.client.domain_search_sftpfile("my_file.txt", True, return_url="https://example.com/cb"), "POST", "bulkapi.zerobounce.net", "/domainSearchSFTPfile"),
             ("export_sftpfile", lambda: self.client.export_sftpfile("file-9"), "POST", "bulkapi.zerobounce.net", "/exportSFTPfile"),
             ("guess_format", lambda: self.client.guess_format("example.com", first_name="Ada"), "GET", "api.zerobounce.net", "/v2/guessformat"),
             ("find_email_format", lambda: self.client.find_email_format("Ada", domain="example.com"), "GET", "api.zerobounce.net", "/v2/guessformat"),
@@ -379,7 +379,8 @@ class OfflineApiTest(TestCase):
         batch = recorded.json["email_batch"]
         self.assertEqual(batch[0]["email_address"], "ada@example.com")
         self.assertEqual(batch[0]["ip_address"], "0.0.0.0")
-        self.assertEqual(recorded.json["timeout"], 30)
+        # A string: the live API rejects the batch when timeout is a JSON number.
+        self.assertEqual(recorded.json["timeout"], "30")
         self.assertIs(recorded.json["activity_data"], False)
         self.assertIs(recorded.json["verify_plus"], True)
 
@@ -453,7 +454,7 @@ class OfflineApiTest(TestCase):
         self.assertIn("/api/validation/list-evaluator/a%2Fb%3Fc/", recorded.url)
 
         self.transport.requests.clear()
-        client.send_evaluated_file(str(self._csv()))
+        client.send_evaluated_file("ev-1")
         self.assertEqual(self._only().path, "/v2/send-evaluated-file/")
 
     def test_inbox_placement_create_sends_camel_case_json(self):
@@ -511,9 +512,13 @@ class OfflineApiTest(TestCase):
         self.assertEqual(recorded.query["page_size"], "100")
 
     def test_s3_and_sftp_file_jobs_send_the_documented_fields(self):
-        self.client.email_finder_s3file("lists/people.csv", False)
+        self.client.email_finder_s3file("lists/people.csv", False, return_url="https://example.com/cb")
         recorded = self._only()
-        self.assertEqual(recorded.form, {"api_key": "client-key", "file_name": "lists/people.csv", "has_header_row": "false"})
+        self.assertEqual(
+            recorded.form,
+            {"api_key": "client-key", "file_name": "lists/people.csv", "has_header_row": "false",
+             "return_url": "https://example.com/cb"},
+        )
 
         self.transport.requests.clear()
         self.client.domain_search_sftpfile("my_file.txt", True, remove_duplicates=False, return_url="https://hooks.example.com/done")
@@ -523,9 +528,16 @@ class OfflineApiTest(TestCase):
         self.assertEqual(recorded.form["return_url"], "https://hooks.example.com/done")
         self.assertNotIn("remove_duplicate", recorded.form)
 
-        self.transport.requests.clear()
-        self.client.validate_sftpfile(None, True)
-        self.assertNotIn("file_name", self._only().form)
+        # The live API rejects these jobs without return_url, and validateSFTPfile without file_name.
+        for attempt in (
+            lambda: self.client.validate_sftpfile(None, True, return_url="https://example.com/cb"),
+            lambda: self.client.validate_s3file("lists/jan.csv", True),
+            lambda: self.client.score_sftpfile("my_file.txt", True, return_url=" "),
+        ):
+            self.transport.requests.clear()
+            with self.assertRaises(ZBClientException):
+                attempt()
+            self.assertEqual(self.transport.requests, [])
 
         self.transport.requests.clear()
         self.client.score_s3file("lists/jan.csv", has_header_row=True, return_url="https://hooks.example.com/s")
@@ -584,10 +596,11 @@ class OfflineApiTest(TestCase):
         self.assertEqual(self._only().form["email_address_column"], "0")
 
         self.transport.requests.clear()
-        self.client.validate_s3file("a.csv", False, remove_duplicates=False)
+        self.client.validate_s3file("a.csv", False, remove_duplicates=False, return_url="https://example.com/cb")
         self.assertEqual(
             self._only().form,
-            {"api_key": "client-key", "file_name": "a.csv", "has_header_row": "false", "remove_duplicates": "false"},
+            {"api_key": "client-key", "file_name": "a.csv", "has_header_row": "false", "remove_duplicates": "false",
+             "return_url": "https://example.com/cb"},
         )
 
         self.transport.requests.clear()
@@ -630,15 +643,15 @@ class OfflineApiTest(TestCase):
             lambda: self.client.find_domain(domain="example.com", company_name="Acme"),
             lambda: self.client.add_filter("", "domain", "example.com"),
             lambda: self.client.delete_filter("allow", "", "example.com"),
-            lambda: self.client.validate_s3file("  ", True),
+            lambda: self.client.validate_s3file("  ", True, return_url="https://example.com/cb"),
             lambda: self.client.validate_s3file("lists/jan.csv", None),
             lambda: self.client.score_s3file("lists/jan.csv", None),
             lambda: self.client.export_s3file("  ", "bucket"),
             lambda: self.client.export_s3file("file-9", "  "),
-            lambda: self.client.email_finder_s3file("  ", True),
+            lambda: self.client.email_finder_s3file("  ", True, return_url="https://example.com/cb"),
             lambda: self.client.domain_search_s3file("lists/d.csv", None),
             lambda: self.client.score_sftpfile(None, True),
-            lambda: self.client.validate_sftpfile("  ", True),
+            lambda: self.client.validate_sftpfile("  ", True, return_url="https://example.com/cb"),
             lambda: self.client.email_finder_sftpfile("f.txt", None),
             lambda: self.client.export_sftpfile("  "),
             lambda: self.client.export_sftpfile("file-9", " "),
@@ -688,8 +701,8 @@ class OfflineApiTest(TestCase):
             lambda: client.list_filters(),
             lambda: client.add_filter("block", "domain", "x.com"),
             lambda: client.list_s3files(),
-            lambda: client.email_finder_s3file("lists/people.csv", True),
-            lambda: client.validate_sftpfile("my_file.txt", True),
+            lambda: client.email_finder_s3file("lists/people.csv", True, return_url="https://example.com/cb"),
+            lambda: client.validate_sftpfile("my_file.txt", True, return_url="https://example.com/cb"),
             lambda: client.export_sftpfile("file-9"),
             lambda: client.find_email_format("Ada", domain="example.com"),
             lambda: client.find_domain(domain="example.com"),

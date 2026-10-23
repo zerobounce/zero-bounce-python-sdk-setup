@@ -371,12 +371,17 @@ class ZeroBounceWarmup:
             "GET", "/from-address-statistics", params={"from_address": self._required(from_address, "from_address")}
         )
 
-    def check_domain_dmarc(self, domain: str, dkim_selector: Optional[str] = None):
-        """Check a domain's DNS records (GET /check-domain-dmarc).
+    def check_domain_dmarc(self, from_address: str, dkim_selector: Optional[str] = None):
+        """SPF, DKIM and DMARC status of a from-address's domain (GET /check-domain-dmarc).
 
-        The API names the domain parameter ``from_address``; pass a domain such as ``example.com``.
+        Pass an email address: the live API answers "Please provide a valid email address" for a bare
+        domain, although the docs describe a domain. Returns ``SPF_status``, ``DKIM_status``,
+        ``DMARC_status`` and the ``dkim_selector`` that was checked.
         """
-        params = {"from_address": self._required(domain, "domain")}
+        self._required(from_address, "from_address")
+        if "@" not in from_address:
+            raise ZBClientException("Invalid parameter: from_address (an email address, e.g. sender@example.com)")
+        params = {"from_address": from_address}
         if dkim_selector is not None:
             params["dkim_selector"] = self._required(dkim_selector, "dkim_selector")
         return self._json("GET", "/check-domain-dmarc", params=params)
@@ -385,6 +390,8 @@ class ZeroBounceWarmup:
         """Check that SMTP credentials connect and hand off a message (POST /test-smtp-configuration).
 
         Nothing is stored, and the test message goes to a ZeroBounce test recipient, not ``from_address``.
+        The live API currently answers a failed SMTP login with HTTP 500, raised as ``ZBApiException``
+        with ``status_code`` 500.
         """
         if isinstance(port, bool) or not isinstance(port, int) or not 1 <= port <= 65535:
             raise ZBClientException("Invalid parameter: port (must be 1 to 65535)")

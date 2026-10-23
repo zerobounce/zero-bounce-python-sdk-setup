@@ -108,7 +108,7 @@ class WarmupTest(TestCase):
             (lambda c: c.get_statistics_detailed("sender@example.com"), "GET", "/statistics-detailed"),
             (lambda c: c.download_statistics("sender@example.com", str(out / "stats.csv")), "GET", "/statistics/download"),
             (lambda c: c.get_from_address_statistics("sender@example.com"), "GET", "/from-address-statistics"),
-            (lambda c: c.check_domain_dmarc("example.com"), "GET", "/check-domain-dmarc"),
+            (lambda c: c.check_domain_dmarc("sender@example.com"), "GET", "/check-domain-dmarc"),
             (lambda c: c.test_smtp_configuration("sender@example.com", "sender@example.com", "pw", "smtp.example.com", 587), "POST", "/test-smtp-configuration"),
         ]
         self.assertEqual(len(cases), 26)
@@ -190,8 +190,8 @@ class WarmupTest(TestCase):
         )
 
         self.requests.clear()
-        self.client.check_domain_dmarc("example.com", dkim_selector="default")
-        self.assertEqual(self._only().query, {"from_address": "example.com", "dkim_selector": "default"})
+        self.client.check_domain_dmarc("sender@example.com", dkim_selector="default")
+        self.assertEqual(self._only().query, {"from_address": "sender@example.com", "dkim_selector": "default"})
 
         self.requests.clear()
         self.client.create_custom_engagement("sender@example.com", 20, 25, 25)
@@ -226,6 +226,7 @@ class WarmupTest(TestCase):
             lambda: self.client.get_statistics_per_day("s@example.com", "2026-09-14", "2026-09-01"),
             lambda: self.client.get_statistics_per_day("s@example.com", "09/01/2026", "2026-09-14"),
             lambda: self.client.check_domain_dmarc(""),
+            lambda: self.client.check_domain_dmarc("example.com"),  # the live API wants an email address
             lambda: self.client.test_smtp_configuration("s@example.com", "u", "pw", "smtp.example.com", 0),
             lambda: self.client.test_smtp_configuration("s@example.com", "u", "", "smtp.example.com", 587),
         ]

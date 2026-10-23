@@ -322,3 +322,36 @@ class DocumentedVariantsTest(_Offline):
         self.transport.requests.clear()
         self.client.add_filter("block", "mx", "*.example.com")
         self.assertEqual(self._only().form["target"], "mx")
+
+
+class LiveApiShapesTest(_Offline):
+    """Shapes seen on the live API that the docs don't describe."""
+
+    def test_a_json_list_error_reads_as_its_first_message(self):
+        body = json.dumps(["In-progress tests cannot be deleted."]).encode()
+        self.transport._reply = lambda recorded: offline._response(400, body, "application/json")
+        with self.assertRaises(ZBApiException) as caught:
+            self.client.delete_inbox_placement_test(38890)
+        self.assertEqual(str(caught.exception), "In-progress tests cannot be deleted.")
+        self.assertEqual(caught.exception.status_code, 400)
+
+    def test_main_client_errors_carry_the_http_status(self):
+        self.transport._reply = lambda recorded: offline._response(
+            403, b"<html><title>Access denied | zerobounce.net</title></html>", "text/html")
+        with self.assertRaises(ZBApiException) as caught:
+            self.client.scoring_file_status("file-9")
+        self.assertEqual(caught.exception.status_code, 403)
+
+
+class SendEvaluatedFileTest(_Offline):
+    def test_it_sends_the_evaluator_file_id_as_a_form_field(self):
+        # The live API wants the evaluated list's file_id, not a new upload.
+        self.client.send_evaluated_file("ev-1")
+        recorded = self._only()
+        self.assertEqual(recorded.path, "/v2/send-evaluated-file/")
+        self.assertEqual(recorded.form, {"api_key": "client-key", "file_id": "ev-1"})
+        self.assertEqual(recorded.files, {})
+        self.transport.requests.clear()
+        with self.assertRaises(ZBClientException):
+            self.client.send_evaluated_file("  ")
+        self.assertEqual(self.transport.requests, [])
