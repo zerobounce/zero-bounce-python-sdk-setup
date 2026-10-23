@@ -6,8 +6,9 @@ More information about ZeroBounce you can find in the [official documentation](h
 ## Security
 
 - Keep API keys on a trusted server. Do not embed them in mobile apps or browser JavaScript that untrusted users can inspect.
-- Custom API base URLs (when supported) must use `https://`. Do not pass end-user-controlled hosts into those settings.
-- Request URLs include `api_key` as a query parameter (ZeroBounce API contract). Do not log full request URLs or enable payload debug logging in production.
+- Where the key travels, as each API documents it: the validation API takes an `api_key` parameter (in the query string for `GET` requests; in the body with `use_post=True` and for file uploads); the Inbox Placement Tester takes an `Authorization: Bearer` header; the Warmup API takes a separate Warmup key in an `API-Key` header, used only by `ZeroBounceWarmup`. Query strings can end up in proxy and server logs, so do not log full request URLs, and prefer `use_post=True` where a method offers it.
+- Every base URL, including the per-API `*_BASE_URL` attributes, must be `https://`: the client refuses to send a request anywhere else. Do not pass end-user-controlled hosts into those settings.
+- The client never follows redirects and masks the key in every exception it raises, network errors included. It rejects a key with surrounding whitespace or control characters, such as one read from a file with its trailing newline.
 
 ## INSTALLATION
 ```bash
@@ -56,6 +57,10 @@ zero_bounce = ZeroBounce("<YOUR_API_KEY>", base_url="https://custom-api.example.
 - `ZBApiUrl.API_USA_URL` - USA region API (https://api-us.zerobounce.net/v2/)
 - `ZBApiUrl.API_EU_URL` - EU region API (https://api-eu.zerobounce.net/v2/)
 
+The region applies to the single-request API. File-based APIs always use `bulkapi.zerobounce.net` (see [Other hosts](#other-hosts)).
+
+**Errors:** a method raises `ZBClientException` when it rejects an argument before sending anything, and `ZBApiException` when the API returns an error; both inherit from `ZBException`. `ZBApiException.status_code` holds the HTTP status when it is known (for example 429 from the Warmup API). An unknown status, sub-status or confidence value in a response becomes `None` with a `UserWarning` instead of an error.
+
 ## Examples
 Then you can use any of the SDK methods, for example:
 
@@ -102,6 +107,8 @@ except ZBException as e:
 ```
 
 * ##### Find the correct email format when you provide a name and email domain or company name
+
+Pass exactly one of `domain` or `company_name`. The name fields are optional, and `use_post=True` sends the request as a form-encoded `POST`.
 
 ```python
 from zerobouncesdk import ZeroBounce, ZBException
@@ -374,7 +381,7 @@ file_id="<FILE_ID>"                         # The returned file ID when calling 
 local_download_path = "./dwnld_file.csv"    # The path where the file will be downloaded
 
 try:
-    response = zero_bounce.scoring_get_file(file_id, local_download_path)
+    response = zero_bounce.scoring_get_file(file_id, local_download_path)  # stream=True for large files
     print("ZeroBounce get_file response: " + str(response))
     # Optional third argument: ZBGetFileOptions with download_type only (activity_data is not used for scoring getfile)
     # response = zero_bounce.scoring_get_file(file_id, local_download_path, opts)
@@ -445,7 +452,7 @@ try:
         "./people.csv", domain_column=3, first_name_column=1, last_name_column=2, has_header_row=True
     )
     print(zero_bounce.email_finder_file_status(sent.file_id))
-    zero_bounce.email_finder_get_file(sent.file_id, "./people_results.csv")
+    zero_bounce.email_finder_get_file(sent.file_id, "./people_results.csv")  # stream=True for large files
     zero_bounce.email_finder_delete_file(sent.file_id)  # only when the status is Complete
 
     sent = zero_bounce.send_domain_search_file("./domains.csv", domain_column=1, has_header_row=True)
@@ -575,7 +582,10 @@ zero_bounce.EMAIL_FINDER_BASE_URL = "https://bulkapi.zerobounce.net/email-finder
 zero_bounce.DOMAIN_SEARCH_BASE_URL = "https://bulkapi.zerobounce.net/domain-search"
 zero_bounce.LIST_EVALUATOR_BASE_URL = "https://bulkapi.zerobounce.net/v2/listevaluator"
 zero_bounce.INBOX_PLACEMENT_BASE_URL = "https://bulkapi.zerobounce.net/api/ipt"
+zero_bounce.BULK_ROOT_URL = "https://bulkapi.zerobounce.net"                         # S3 and SFTP/FTP
 ```
+
+Each of these must be an `https://` URL; the client refuses to send the key anywhere else.
 
 * ##### (Deprecated) Identify the correct email format when you provide a name and email domain
 
@@ -593,7 +603,7 @@ last_name = "Doe" # The last name of the person whose email format is being sear
 
 try:
     response = zero_bounce.guess_format(domain, first_name, middle_name, last_name)
-    print("ZeroBounce guess format response: " + response)
+    print("ZeroBounce guess format response: " + str(response))
 except ZBException as e:
     print("ZeroBounce guess format error: " + str(e))
 ```
@@ -602,61 +612,38 @@ except ZBException as e:
 
 ### Local setup
 ```bash
-python -m venv venv # python 3.12+
+python -m venv venv   # Python 3.10+ recommended
 source venv/bin/activate
-pip install -e .
+pip install -e ".[test]"
+pip install ruff==0.17.2
 ```
 
-### Run tests with Docker
-From the **`sdk-docs/`** folder in the SDKs monorepo:
+### Lint and test
+```bash
+ruff check src tests
+python -m compileall -q src tests
+python -m pytest
+```
+
+`python -m pytest` runs every offline suite: the scripted unit tests and the `tests/test_*.py` suites, which answer through a fake transport and never call the API. CI runs the same commands, with coverage.
+
+### Live API tests
+`tests/zero_bounce_integration_test.py` calls the real API and is not collected by `pytest`. Run it with a valid key:
 
 ```bash
-cd sdk-docs
-docker compose build python
-docker compose run --rm python
+export ZEROBOUNCE_API_KEY=<apikey>
+python -m unittest tests.zero_bounce_integration_test -v
 ```
 
-Or build and run this SDK’s image from this directory:
+Without `ZEROBOUNCE_API_KEY` its tests are skipped. It covers the original single-request methods; the newer APIs are tested offline only.
 
+### Run tests with Docker
 ```bash
 docker build -t zb-python-sdk .
 docker run --rm zb-python-sdk
 ```
 
-### Run tests (local)
-```bash
-python -m tests -v
-
-# output:
-python -m tests -v 
-test_api_regions (tests.zero_bounce_integration_test.ZeroBounceIntegrationTestCase.test_api_regions)
-Test that different API regions work. ... skipped 'ZEROBOUNCE_API_KEY environment variable not set'
-test_error_handling_invalid_key (tests.zero_bounce_integration_test.ZeroBounceIntegrationTestCase.test_error_handling_invalid_key)
-Test error handling with invalid API key. ... skipped 'ZEROBOUNCE_API_KEY environment variable not set'
-test_find_domain_with_domain (tests.zero_bounce_integration_test.ZeroBounceIntegrationTestCase.test_find_domain_with_domain)
-Test find_domain with domain parameter. ... skipped 'ZEROBOUNCE_API_KEY environment variable not set'
-
-----------------------------------------------------------------------
-Ran 4 tests in 0.015s
-
-OK (skipped=10) # integration tests are skipped if no api key is present
-```
-
-```bash
-# to run integration tests export api key into the environment (valid api key required)
-export ZEROBOUNCE_API_KEY=<apikey> && python -m tests -v
-
-# output:
-test_api_regions (tests.zero_bounce_integration_test.ZeroBounceIntegrationTestCase.test_api_regions)
-Test that different API regions work. ... ok
-test_error_handling_invalid_key (tests.zero_bounce_integration_test.ZeroBounceIntegrationTestCase.test_error_handling_invalid_key)
-Test error handling with invalid API key. ... ok
-
-----------------------------------------------------------------------
-Ran 4 tests in 1.1s
-
-OK
-```
+From the **`sdk-docs/`** folder in the SDKs monorepo, `docker compose build python` and `docker compose run --rm python` do the same.
 
 ## Publish
 

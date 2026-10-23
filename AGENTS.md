@@ -12,7 +12,7 @@ Guidance for AI coding agents working in this repository.
 - `src/zerobouncesdk/zb_warmup.py`: `ZeroBounceWarmup`, the Warmup API client. It has its own host and key, authenticates with an `API-Key` header, and reuses the error helpers in `zerobouncesdk.py`. Keep Warmup methods there, not on `ZeroBounce`.
 - `src/zerobouncesdk/zb_*.py`: response models, enums, and options.
 - `tests/zero_bounce_test_case.py`: scripted unit tests. They patch `zerobouncesdk.zerobouncesdk.requests`.
-- `tests/test_offline_edges.py` and `tests/test_warmup_offline.py`: more offline suites on the same principle (error bodies, redaction, every optional field; the Warmup API).
+- `tests/test_offline_edges.py`, `tests/test_warmup_offline.py`, `tests/test_security_offline.py` and `tests/test_streaming_and_regions_offline.py`: more offline suites on the same principle (error bodies and every optional field; the Warmup API; where keys travel and that they never reach an exception; streamed downloads and the regional-host warning).
 - `tests/test_offline_api.py`: offline suite. It patches `requests.sessions.Session.send`, so the real `requests` client builds the URL and body and the fake answers without the network.
 - `tests/zero_bounce_integration_test.py`: live API tests. `pytest` does not collect this file. Run it with `python -m unittest tests.zero_bounce_integration_test` when `ZEROBOUNCE_API_KEY` is set.
 - `pyproject.toml`: the only version field, `version = "x.y.z"`. `setup.py` calls `setup()` and reads that file.
@@ -21,10 +21,10 @@ Guidance for AI coding agents working in this repository.
 
 ```bash
 pip install -e ".[test]"
-pip install ruff
+pip install ruff==0.17.2            # the version CI pins
 ruff check src tests                # undefined names and syntax errors only
 python -m compileall -q src tests
-python -m pytest                    # unit tests and tests/test_offline_api.py
+python -m pytest                    # every offline suite under tests/
 ```
 
 `ruff check` plus `compileall` is the lint step. There is no typechecker. The Ruff selection in `pyproject.toml` is `E9`, `F63`, `F7`, and `F82`. Do not widen it to a style ruleset that fails the existing tree.
@@ -36,13 +36,16 @@ CI (`.github/workflows/sdk_ci.yml`) runs `ruff check`, `compileall`, then `pytho
 - **Only endpoints documented at https://www.zerobounce.net/docs/.** Do not add a method for an endpoint that the public docs do not describe, even if it exists on the server. Integration pages count: the S3 bulk API is documented at https://www.zerobounce.net/docs/api-integrations/amazon-s3-bulk-api.
 - **One `ZeroBounce` per API key.** The class is not a singleton. Do not reuse one instance across users or requests. The offline concurrency test constructs a separate client per key.
 - **Column indexes are 1-based, and the SDK does not add 1.** Pass the API's index. `0` is a real value and is sent. `None` on an optional column (such as `first_name_column`) omits the field. `send_file`'s email column is required and is sent as given, including `0`. `domain_column` and the list-evaluator email column are required: `None` is rejected, `0` is sent. The bulk email finder also needs `first_name_column` or `full_name_column`.
-- **Optional parameters are omitted when unset.** `timeout`, `activity_data`, `verify_plus`, and `allow_phase_2` are not sent until the caller sets them. Explicit `False` is sent as `false`. `ip_address=None` is omitted; `""` is sent.
-- **Booleans on form and multipart bodies must be the strings `true` and `false`.** A Python `bool` passed to `requests` becomes `True` or `False`, and the API will not treat that as a boolean. `_form_data` converts them. JSON bodies (`validate_batch`) keep JSON booleans.
+- **Optional parameters are omitted when unset.** `timeout`, `activity_data`, `verify_plus`, `domain_info`, `greylist_processing`, `callback_url`, and `allow_phase_2` are not sent until the caller sets them. Explicit `False` is sent as `false`. `ip_address=None` is omitted; `""` is sent.
+- **Booleans on form and multipart bodies must be the strings `true` and `false`.** A Python `bool` passed to `requests` becomes `True` or `False`, and the API will not treat that as a boolean. `_form_data` converts them. JSON bodies (`validate_batch`, the Inbox Placement Tester, the Warmup API) keep JSON booleans.
 - **`allow_phase_2` is validation `send_file` only.** Scoring `send_file` and the S3 / SFTP jobs do not send it; those jobs send only their documented `file_name`, `has_header_row`, `remove_duplicates`, and `return_url`. `activity_data` on get-file is validation `get_file` only.
 - **`validate_batch` uses `api.zerobounce.net`**, not `bulkapi.zerobounce.net`. It follows `base_url`.
 - **Failures raise.** `ZBClientException` means the arguments were rejected and no request was sent. `ZBApiException` means the API failed. The message must be short: no raw HTML, no megabyte body, no `JSONDecodeError` / `Expecting value` text, and no `Error: Error:` prefix. An account-level `validate_batch` error (`email_address` `all`) raises. A per-address error stays on the result's `errors` list. `get_credits` with an invalid key returns `Credits` `-1`; that endpoint does not send an `error` field.
 - **Downloads are buffered unless `stream=True`.** The streamed path sniffs the first 64 KB for an error body, writes to a `.part` temporary file next to `download_path`, and moves it into place only when complete. Keep both paths' error checks identical (`_raise_if_download_error`).
 - **A file download is not JSON.** `get_file` saves a non-empty CSV body, including `text/csv` and `text/plain`. An empty body, an HTML page (status 200 or 403), and a JSON error are `ZBApiException`. Do not treat every `text/plain` body as an error.
+- **Where the key travels is fixed by each API's docs.** The validation API: `api_key` in the query (GET) or body (POST, uploads). The Inbox Placement Tester: `Authorization: Bearer` (`_request_json(..., bearer=True)`). The Warmup API: `API-Key` header, in `ZeroBounceWarmup` only, never mixed with `ZeroBounce`.
+- **Every request URL must be https.** `_checked_url` (main client) refuses anything else before sending, including the reassignable `*_BASE_URL` attributes; it also warns once when an EU or US `base_url` meets `bulkapi.zerobounce.net`, because no regional bulk host is documented.
+- **Keys never reach an exception.** `_check_api_key` rejects surrounding whitespace and control characters (the HTTP library would quote such a header value unredacted). A `RequestException` is redacted with `_redact` and raised after the `except` block, so the original is not its `__context__`; keep that pattern for any new request path. Caller IDs placed in a URL path go through `_path_segment`.
 - **Do not follow redirects.** Every `requests` call passes `allow_redirects=False`. A 3xx response is a `ZBApiException`. A redirect must not be fetched, because the `Location` could be another host and the next request can carry the API key.
 - **Do not commit `.env`.** It is gitignored and may hold a real key. Tests must not call the live API.
 - Match the surrounding style. Do not reformat unrelated code.

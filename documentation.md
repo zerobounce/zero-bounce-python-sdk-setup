@@ -43,6 +43,10 @@ zero_bounce = ZeroBounce("<YOUR_API_KEY>", base_url="https://custom-api.example.
 - `ZBApiUrl.API_USA_URL` - USA region API (https://api-us.zerobounce.net/v2/)
 - `ZBApiUrl.API_EU_URL` - EU region API (https://api-eu.zerobounce.net/v2/)
 
+The region applies to the single-request API. File-based APIs always use `bulkapi.zerobounce.net` (see [Other hosts](#other-hosts)).
+
+**Errors:** a method raises `ZBClientException` when it rejects an argument before sending anything, and `ZBApiException` when the API returns an error; both inherit from `ZBException`. `ZBApiException.status_code` holds the HTTP status when it is known (for example 429 from the Warmup API). An unknown status, sub-status or confidence value in a response becomes `None` with a `UserWarning` instead of an error.
+
 #### Examples
 Then you can use any of the SDK methods, for example:
 
@@ -89,6 +93,8 @@ except ZBException as e:
 ```
 
 * ####### Find the correct email format when you provide a name and email domain or company name
+
+Pass exactly one of `domain` or `company_name`. The name fields are optional, and `use_post=True` sends the request as a form-encoded `POST`.
 
 ```python
 from zerobouncesdk import ZeroBounce, ZBException
@@ -357,7 +363,7 @@ file_id="<FILE_ID>"                         # The returned file ID when calling 
 local_download_path = "./dwnld_file.csv"    # The path where the file will be downloaded
 
 try:
-    response = zero_bounce.scoring_get_file(file_id, local_download_path)
+    response = zero_bounce.scoring_get_file(file_id, local_download_path)  # stream=True for large files
     print("ZeroBounce get_file response: " + str(response))
     # Optional third argument: ZBGetFileOptions with download_type only (activity_data is not used for scoring getfile)
     # response = zero_bounce.scoring_get_file(file_id, local_download_path, opts)
@@ -428,7 +434,7 @@ try:
         "./people.csv", domain_column=3, first_name_column=1, last_name_column=2, has_header_row=True
     )
     print(zero_bounce.email_finder_file_status(sent.file_id))
-    zero_bounce.email_finder_get_file(sent.file_id, "./people_results.csv")
+    zero_bounce.email_finder_get_file(sent.file_id, "./people_results.csv")  # stream=True for large files
     zero_bounce.email_finder_delete_file(sent.file_id)  # only when the status is Complete
 
     sent = zero_bounce.send_domain_search_file("./domains.csv", domain_column=1, has_header_row=True)
@@ -558,4 +564,7 @@ zero_bounce.EMAIL_FINDER_BASE_URL = "https://bulkapi.zerobounce.net/email-finder
 zero_bounce.DOMAIN_SEARCH_BASE_URL = "https://bulkapi.zerobounce.net/domain-search"
 zero_bounce.LIST_EVALUATOR_BASE_URL = "https://bulkapi.zerobounce.net/v2/listevaluator"
 zero_bounce.INBOX_PLACEMENT_BASE_URL = "https://bulkapi.zerobounce.net/api/ipt"
+zero_bounce.BULK_ROOT_URL = "https://bulkapi.zerobounce.net"                         # S3 and SFTP/FTP
 ```
+
+Each of these must be an `https://` URL; the client refuses to send the key anywhere else.

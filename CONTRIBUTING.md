@@ -8,7 +8,7 @@ By participating in this project, you agree to uphold our [Code of Conduct](CODE
 
 ## Getting Started
 
-See the [README](README.md) for prerequisites, setup, and how to run tests.
+See the [README](README.md) for setup, linting and tests (`ruff check src tests`, `python -m compileall -q src tests`, `python -m pytest`). [AGENTS.md](AGENTS.md) describes the layout and the conventions changes must follow.
 
 ## How to Contribute
 
@@ -28,20 +28,22 @@ Open an [issue](https://github.com/zerobounce/zero-bounce-python-sdk-setup/issue
 
 ### Submitting Changes
 
-1. **Fork** the repository and create a branch from `main`:
+1. **Fork** the repository and create a branch from `master`:
    ```bash
    git checkout -b feature/your-feature-name
    ```
 
-2. **Make your changes** and add or update tests where relevant.
+2. **Make your changes** and add or update tests where relevant. Tests must not call the live API. Only add methods for endpoints documented at https://www.zerobounce.net/docs/.
 
-3. **Run the test suite** (see README) before submitting.
+3. **Add a CHANGELOG entry** under `## [Unreleased]` for anything users will notice.
 
-4. **Commit** with a clear message (e.g. `Add X`, `Fix Y`).
+4. **Run the lint and test commands** (see README) before submitting.
 
-5. **Push** your branch and open a **Pull Request** against `main`.
+5. **Commit** with a [Conventional Commits](https://www.conventionalcommits.org/) message (e.g. `feat: add X`, `fix: Y`, `docs: Z`).
 
-6. In the PR description, briefly explain what changed and why. Link any related issues.
+6. **Push** your branch and open a **Pull Request** against `master`.
+
+7. In the PR description, briefly explain what changed and why. Link any related issues.
 
 Maintainers will review and may request changes. Once approved, your PR can be merged.
 

@@ -184,7 +184,9 @@ def _response_text(response) -> str:
 
 
 class ZeroBounce:
-    """The ZeroBounce main class. All the requests are implemented here."""
+    """Client for the ZeroBounce API: validation, scoring, email finder and domain search, bulk and S3/SFTP
+    files, the list evaluator, filters and the Inbox Placement Tester. The Warmup API has its own client,
+    ``ZeroBounceWarmup``, with its own key."""
 
     BULK_BASE_URL = "https://bulkapi.zerobounce.net/v2"
     BULK_ROOT_URL = "https://bulkapi.zerobounce.net"

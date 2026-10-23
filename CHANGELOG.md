@@ -64,6 +64,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Error messages no longer include the raw HTML access-denied page. The live `get_file` page is about 1.4 MB and contains the API key.
 - Redirects are not followed, so a response cannot send the client, or the API key, to another host.
 
+## [2.2.4] - 2026-08-14
+
+No changes to the package; CI action updates only.
+
 ## [2.2.3] - 2026-06-18
 
 ### Fixed
@@ -152,6 +156,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Initial release: `get_credits`, `get_api_usage`, `get_activity`, `validate`, `validate_batch`, bulk and AI-scoring file methods, and `guess_format`.
 
 [Unreleased]: https://github.com/zerobounce/zero-bounce-python-sdk-setup/compare/v2.2.4...HEAD
+[2.2.4]: https://github.com/zerobounce/zero-bounce-python-sdk-setup/compare/v2.2.3...v2.2.4
 [2.2.3]: https://github.com/zerobounce/zero-bounce-python-sdk-setup/compare/v2.2.2...v2.2.3
 [2.2.2]: https://github.com/zerobounce/zero-bounce-python-sdk-setup/compare/v2.2.0...v2.2.2
 [2.2.0]: https://github.com/zerobounce/zero-bounce-python-sdk-setup/compare/v2.1.10...v2.2.0
