@@ -314,8 +314,8 @@ class OfflineApiTest(TestCase):
             ("scoring_get_file", lambda: self.client.scoring_get_file("file-9", str(out) + ".score"), "GET", "bulkapi.zerobounce.net", "/v2/scoring/getfile"),
             ("delete_file", lambda: self.client.delete_file("file-9"), "GET", "bulkapi.zerobounce.net", "/v2/deletefile"),
             ("scoring_delete_file", lambda: self.client.scoring_delete_file("file-9"), "GET", "bulkapi.zerobounce.net", "/v2/scoring/deletefile"),
-            ("send_email_finder_file", lambda: self.client.send_email_finder_file(str(csv), 1), "POST", "bulkapi.zerobounce.net", "/email-finder/sendfile"),
-            ("send_email_finder_file_stream", lambda: self.client.send_email_finder_file_stream(BytesIO(b"example.com\n"), "f.csv", 1), "POST", "bulkapi.zerobounce.net", "/email-finder/sendfile"),
+            ("send_email_finder_file", lambda: self.client.send_email_finder_file(str(csv), 1, first_name_column=2), "POST", "bulkapi.zerobounce.net", "/email-finder/sendfile"),
+            ("send_email_finder_file_stream", lambda: self.client.send_email_finder_file_stream(BytesIO(b"example.com\n"), "f.csv", 1, full_name_column=2), "POST", "bulkapi.zerobounce.net", "/email-finder/sendfile"),
             ("email_finder_file_status", lambda: self.client.email_finder_file_status("file-9"), "GET", "bulkapi.zerobounce.net", "/email-finder/filestatus"),
             ("email_finder_get_file", lambda: self.client.email_finder_get_file("file-9", str(out) + ".finder"), "GET", "bulkapi.zerobounce.net", "/email-finder/getfile"),
             ("email_finder_delete_file", lambda: self.client.email_finder_delete_file("file-9"), "GET", "bulkapi.zerobounce.net", "/email-finder/deletefile"),
@@ -333,8 +333,8 @@ class OfflineApiTest(TestCase):
             ("list_filters_post", lambda: self.client.list_filters(use_post=True), "POST", "api.zerobounce.net", "/v2/filters/list"),
             ("delete_filter", lambda: self.client.delete_filter("allow", "domain", "example.com"), "POST", "api.zerobounce.net", "/v2/filters/delete"),
             ("list_s3files", lambda: self.client.list_s3files(bucket="b", search="a"), "GET", "bulkapi.zerobounce.net", "/listS3files"),
-            ("validate_s3file", lambda: self.client.validate_s3file("lists/jan.csv"), "POST", "bulkapi.zerobounce.net", "/validateS3file"),
-            ("score_s3file", lambda: self.client.score_s3file("lists/jan.csv"), "POST", "bulkapi.zerobounce.net", "/scoreS3file"),
+            ("validate_s3file", lambda: self.client.validate_s3file("lists/jan.csv", True), "POST", "bulkapi.zerobounce.net", "/validateS3file"),
+            ("score_s3file", lambda: self.client.score_s3file("lists/jan.csv", True), "POST", "bulkapi.zerobounce.net", "/scoreS3file"),
             ("export_s3file", lambda: self.client.export_s3file("file-9", "export-bucket"), "POST", "bulkapi.zerobounce.net", "/exportS3file"),
             ("email_finder_s3file", lambda: self.client.email_finder_s3file("lists/people.csv", True), "POST", "bulkapi.zerobounce.net", "/emailFinderS3file"),
             ("domain_search_s3file", lambda: self.client.domain_search_s3file("lists/domains.csv", True), "POST", "bulkapi.zerobounce.net", "/domainSearchS3file"),
@@ -563,9 +563,10 @@ class OfflineApiTest(TestCase):
         self.assertEqual(recorded.form["remove_duplicate"], "false")
 
         self.transport.requests.clear()
-        self.client.send_email_finder_file(str(csv), 0, has_header_row=False)
+        self.client.send_email_finder_file(str(csv), 0, full_name_column=0, has_header_row=False)
         recorded = self._only()
         self.assertEqual(recorded.form["domain_column"], "0")
+        self.assertEqual(recorded.form["full_name_column"], "0")
         self.assertEqual(recorded.form["has_header_row"], "false")
         self.assertNotIn("first_name_column", recorded.form)
 
@@ -578,13 +579,11 @@ class OfflineApiTest(TestCase):
         self.assertEqual(self._only().form["email_address_column"], "0")
 
         self.transport.requests.clear()
-        self.client.validate_s3file("a.csv", email_address_column=0, has_header_row=False, remove_duplicate=False, allow_phase_2=False)
-        recorded = self._only()
-        self.assertEqual(recorded.form["email_address_column"], "0")
-        self.assertEqual(recorded.form["has_header_row"], "false")
-        self.assertEqual(recorded.form["remove_duplicate"], "false")
-        self.assertEqual(recorded.form["allow_phase_2"], "false")
-        self.assertNotIn("remove_duplicates", recorded.form)
+        self.client.validate_s3file("a.csv", False, remove_duplicates=False)
+        self.assertEqual(
+            self._only().form,
+            {"api_key": "client-key", "file_name": "a.csv", "has_header_row": "false", "remove_duplicates": "false"},
+        )
 
         self.transport.requests.clear()
         self.client.scoring_send_file(str(csv), 1, has_header_row=True, remove_duplicate=True)
@@ -626,7 +625,9 @@ class OfflineApiTest(TestCase):
             lambda: self.client.find_domain(domain="example.com", company_name="Acme"),
             lambda: self.client.add_filter("", "domain", "example.com"),
             lambda: self.client.delete_filter("allow", "", "example.com"),
-            lambda: self.client.validate_s3file("  "),
+            lambda: self.client.validate_s3file("  ", True),
+            lambda: self.client.validate_s3file("lists/jan.csv", None),
+            lambda: self.client.score_s3file("lists/jan.csv", None),
             lambda: self.client.export_s3file("  ", "bucket"),
             lambda: self.client.export_s3file("file-9", "  "),
             lambda: self.client.email_finder_s3file("  ", True),

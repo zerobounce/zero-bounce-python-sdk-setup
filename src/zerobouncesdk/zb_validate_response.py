@@ -2,7 +2,7 @@ from datetime import datetime
 
 from . import ZBValidateStatus, ZBValidateSubStatus
 from ._zb_response import ZBResponse
-from ._zb_utils import safe_enum_convert
+from ._zb_utils import parse_bool, parse_datetime, safe_enum_convert
 
 
 class ZBValidateResponse(ZBResponse):
@@ -94,5 +94,9 @@ class ZBValidateResponse(ZBResponse):
             self.message = self.__dict__["Message"]
         self.status = safe_enum_convert(ZBValidateStatus, self.status, "status")
         self.sub_status = safe_enum_convert(ZBValidateSubStatus, self.sub_status, "sub_status")
-        if self.processed_at is not None:
-            self.processed_at = datetime.strptime(self.processed_at, "%Y-%m-%d %H:%M:%S.%f")
+        for flag in ("free_email", "mx_found", "catchall_domain"):
+            if flag in self.__dict__:
+                setattr(self, flag, parse_bool(self.__dict__[flag]))
+        self.processed_at = parse_datetime(
+            self.processed_at, ("%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%d %H:%M:%S"), "processed_at"
+        )

@@ -781,7 +781,7 @@ class ZeroBounceTestCase(BaseTestCase):
         })
         stream = BytesIO(b"domain,name\nacme.com,Jane")
         self.zero_bounce_client.send_email_finder_file_stream(
-            stream, "finder.csv", domain_column=1
+            stream, "finder.csv", domain_column=1, full_name_column=2
         )
         url = self.requests_mock.post.call_args[0][0]
         self.assertEqual(url, "https://bulkapi.zerobounce.net/email-finder/sendfile")

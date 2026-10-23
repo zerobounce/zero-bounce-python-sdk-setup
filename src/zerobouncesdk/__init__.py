@@ -13,6 +13,7 @@ from .zb_validate_response import ZBValidateResponse
 from .zb_validate_batch_element import ZBValidateBatchElement
 from .zb_validate_batch_response import ZBValidateBatchResponse, ZBValidateBatchEmail, ZBValidateBatchError
 from .zb_send_file_response import ZBSendFileResponse
+from .zb_list_evaluator_response import ZBListEvaluatorResponse
 from .zb_file_status_response import ZBFileStatusResponse
 from .zb_get_file_response import ZBGetFileResponse
 from .zb_delete_file_response import ZBDeleteFileResponse

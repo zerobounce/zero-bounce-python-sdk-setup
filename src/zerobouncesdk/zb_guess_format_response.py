@@ -48,7 +48,7 @@ class ZBGuessFormatResponse(ZBResponse):
     def __init__(self, data):
         super().__init__(data)
         if "Message" in data or "message" in data:
-            message = data.get("message", data["Message"])
+            message = data.get("message") or data.get("Message")
             raise ZBApiException(message)
 
         self.status = safe_enum_convert(ZBValidateStatus, self.status, "status", lowercase=True)

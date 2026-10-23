@@ -22,6 +22,7 @@ from . import (
     ZBValidateBatchElement,
     ZBValidateBatchResponse,
     ZBSendFileResponse,
+    ZBListEvaluatorResponse,
     ZBFileStatusResponse,
     ZBGetFileResponse,
     ZBDeleteFileResponse,
@@ -159,6 +160,8 @@ class ZeroBounce:
     DEFAULT_HTTP_TIMEOUT_S = 120.0
     IPT_TEST_TYPES = (1, 2, 3)
     IPT_TEST_STATUSES = ("running", "finished")
+    # Documented: letters, numbers and - / \ , . & ' ( ). Spaces are accepted too.
+    IPT_NAME_PUNCTUATION = frozenset(" -/\\,.&'()")
 
     @staticmethod
     def _require_https_url(url: str) -> str:
@@ -429,7 +432,13 @@ class ZeroBounce:
             data=data,
         )
 
-    def get_credits(self):
+    def _get_or_post_form(self, url, response_class, params, use_post: bool):
+        """GET with query parameters, or the documented form-encoded POST with the same parameters."""
+        if use_post:
+            return self._post_form(url, response_class, data=params)
+        return self._get(url, response_class, params=params)
+
+    def get_credits(self, use_post: bool = False):
         """Tells you how many credits you have left on your account.
         It's simple, fast and easy to use.
 
@@ -443,9 +452,9 @@ class ZeroBounce:
             Returns a ZBGetCreditsResponse object if the request was successful
         """
 
-        return self._get(f"{self._base_url}/getcredits", ZBGetCreditsResponse)
+        return self._get_or_post_form(f"{self._base_url}/getcredits", ZBGetCreditsResponse, {}, use_post)
 
-    def get_api_usage(self, start_date: date, end_date: date):
+    def get_api_usage(self, start_date: date, end_date: date, use_post: bool = False):
         """Returns the API usage between the given dates.
 
         Parameters
@@ -465,16 +474,17 @@ class ZeroBounce:
             Returns a ZBGetApiUsageResponse object if the request was successful
         """
 
-        return self._get(
+        return self._get_or_post_form(
             f"{self._base_url}/getapiusage",
             ZBGetApiUsageResponse,
-            params={
+            {
                 "start_date": start_date.strftime("%Y-%m-%d"),
                 "end_date": end_date.strftime("%Y-%m-%d"),
             },
+            use_post,
         )
 
-    def get_activity(self, email: str):
+    def get_activity(self, email: str, use_post: bool = False):
         """Allows you to gather insights into your subscribers' overall email engagement
 
         Parameters
@@ -492,8 +502,8 @@ class ZeroBounce:
             Returns a ZBGetActivityResponse object if the request was successful
         """
 
-        return self._get(
-            f"{self._base_url}/activity", ZBGetActivityResponse, params={"email": email}
+        return self._get_or_post_form(
+            f"{self._base_url}/activity", ZBGetActivityResponse, {"email": email}, use_post
         )
 
     def score_email(self, email: str, use_post: bool = False):
@@ -1153,6 +1163,8 @@ class ZeroBounce:
     ) -> ZBSendFileResponse:
         if domain_column is None:
             raise ZBClientException("Empty parameter: domain_column")
+        if first_name_column is None and full_name_column is None:
+            raise ZBClientException("Empty parameter: first_name_column or full_name_column is required")
         fields = {"domain_column": domain_column, "has_header_row": has_header_row}
         if first_name_column is not None:
             fields["first_name_column"] = first_name_column
@@ -1179,6 +1191,8 @@ class ZeroBounce:
     ) -> ZBSendFileResponse:
         if domain_column is None:
             raise ZBClientException("Empty parameter: domain_column")
+        if first_name_column is None and full_name_column is None:
+            raise ZBClientException("Empty parameter: first_name_column or full_name_column is required")
         fields = {"domain_column": domain_column, "has_header_row": has_header_row}
         if first_name_column is not None:
             fields["first_name_column"] = first_name_column
@@ -1249,7 +1263,7 @@ class ZeroBounce:
 
     def send_list_evaluator_file(
         self, file_path: str, email_address_column: int
-    ) -> ZBSendFileResponse:
+    ) -> ZBListEvaluatorResponse:
         if email_address_column is None:
             raise ZBClientException("Empty parameter: email_address_column")
         data = {
@@ -1260,7 +1274,7 @@ class ZeroBounce:
             files = {"file": (os.path.basename(file_path), file, "text/csv")}
             return self._post(
                 f"{self.LIST_EVALUATOR_BASE_URL}/",
-                ZBSendFileResponse,
+                ZBListEvaluatorResponse,
                 data=data,
                 files=files,
             )
@@ -1270,7 +1284,7 @@ class ZeroBounce:
         file_stream: BinaryIO,
         file_name: str,
         email_address_column: int,
-    ) -> ZBSendFileResponse:
+    ) -> ZBListEvaluatorResponse:
         if email_address_column is None:
             raise ZBClientException("Empty parameter: email_address_column")
         data = {
@@ -1280,18 +1294,21 @@ class ZeroBounce:
         files = {"file": (file_name, file_stream, "text/csv")}
         return self._post(
             f"{self.LIST_EVALUATOR_BASE_URL}/",
-            ZBSendFileResponse,
+            ZBListEvaluatorResponse,
             data=data,
             files=files,
         )
 
-    def get_list_evaluator_result(self, file_id: str):
+    def get_list_evaluator_result(self, file_id: str) -> ZBListEvaluatorResponse:
+        """The evaluation's progress and, once ``status`` is ``finished``, its percentages."""
         if not file_id.strip():
             raise ZBClientException("Empty parameter: file_id")
-        return self._request_json(
-            "GET",
-            f"{self.LIST_EVALUATOR_BASE_URL}/{quote(file_id, safe='')}/",
-            params={"api_key": self._api_key},
+        return ZBListEvaluatorResponse(
+            self._request_json(
+                "GET",
+                f"{self.LIST_EVALUATOR_BASE_URL}/{quote(file_id, safe='')}/",
+                params={"api_key": self._api_key},
+            )
         )
 
     def send_evaluated_file(self, file_path: str) -> ZBSendFileResponse:
@@ -1307,9 +1324,20 @@ class ZeroBounce:
 
     # Priority 3 — custom filters (main API)
 
-    def add_filter(self, rule: str, target: str, value: str):
+    FILTER_RULES = ("allow", "block")
+    FILTER_TARGETS = ("email", "domain", "mx", "tld")
+
+    def _check_filter(self, rule: str, target: str, value: str) -> None:
         if not rule or not target or not value:
             raise ZBClientException("Empty parameter: rule, target, and value are required")
+        if rule not in self.FILTER_RULES:
+            raise ZBClientException("Invalid parameter: rule (must be allow or block)")
+        if target not in self.FILTER_TARGETS:
+            raise ZBClientException("Invalid parameter: target (must be email, domain, mx or tld)")
+
+    def add_filter(self, rule: str, target: str, value: str):
+        """Add or update an allowlist / blocklist rule (POST /filters/add)."""
+        self._check_filter(rule, target, value)
         return self._request_json(
             "POST",
             f"{self._base_url}/filters/add",
@@ -1335,8 +1363,8 @@ class ZeroBounce:
         )
 
     def delete_filter(self, rule: str, target: str, value: str):
-        if not rule or not target or not value:
-            raise ZBClientException("Empty parameter: rule, target, and value are required")
+        """Delete an allowlist / blocklist rule (POST /filters/delete)."""
+        self._check_filter(rule, target, value)
         return self._request_json(
             "POST",
             f"{self._base_url}/filters/delete",
@@ -1378,65 +1406,29 @@ class ZeroBounce:
     def validate_s3file(
         self,
         file_name: str,
-        has_header_row: bool = None,
-        remove_duplicates: bool = None,
-        remove_duplicate: bool = None,
-        email_address_column: int = None,
-        return_url: str = None,
-        first_name_column: int = None,
-        last_name_column: int = None,
-        gender_column: int = None,
-        ip_address_column: int = None,
-        allow_phase_2: Optional[bool] = None,
+        has_header_row: bool,
+        remove_duplicates: Optional[bool] = None,
+        return_url: Optional[str] = None,
     ) -> ZBSendFileResponse:
-        if not file_name or not file_name.strip():
-            raise ZBClientException("Empty parameter: file_name")
-        fields = {"file_name": file_name}
-        if has_header_row is not None:
-            fields["has_header_row"] = has_header_row
-        if remove_duplicates is not None:
-            fields["remove_duplicates"] = remove_duplicates
-        if remove_duplicate is not None:
-            fields["remove_duplicate"] = remove_duplicate
-        if email_address_column is not None:
-            fields["email_address_column"] = email_address_column
-        if return_url is not None:
-            fields["return_url"] = return_url
-        if first_name_column is not None:
-            fields["first_name_column"] = first_name_column
-        if last_name_column is not None:
-            fields["last_name_column"] = last_name_column
-        if gender_column is not None:
-            fields["gender_column"] = gender_column
-        if ip_address_column is not None:
-            fields["ip_address_column"] = ip_address_column
-        if allow_phase_2 is not None:
-            fields["allow_phase_2"] = "true" if allow_phase_2 else "false"
-        return self._post_bulk_root_form("/validateS3file", fields)
+        """Validate a file in your Amazon S3 bucket (POST /validateS3file).
+
+        ``file_name`` is the full path as returned by ``list_s3files``.
+        """
+        return self._bulk_root_file_job(
+            "/validateS3file", file_name, has_header_row, remove_duplicates, return_url
+        )
 
     def score_s3file(
         self,
         file_name: str,
-        has_header_row: bool = None,
-        remove_duplicates: bool = None,
-        remove_duplicate: bool = None,
-        email_address_column: int = None,
-        return_url: str = None,
+        has_header_row: bool,
+        remove_duplicates: Optional[bool] = None,
+        return_url: Optional[str] = None,
     ) -> ZBSendFileResponse:
-        if not file_name or not file_name.strip():
-            raise ZBClientException("Empty parameter: file_name")
-        fields = {"file_name": file_name}
-        if has_header_row is not None:
-            fields["has_header_row"] = has_header_row
-        if remove_duplicates is not None:
-            fields["remove_duplicates"] = remove_duplicates
-        if remove_duplicate is not None:
-            fields["remove_duplicate"] = remove_duplicate
-        if email_address_column is not None:
-            fields["email_address_column"] = email_address_column
-        if return_url is not None:
-            fields["return_url"] = return_url
-        return self._post_bulk_root_form("/scoreS3file", fields)
+        """Score a file in your Amazon S3 bucket (POST /scoreS3file)."""
+        return self._bulk_root_file_job(
+            "/scoreS3file", file_name, has_header_row, remove_duplicates, return_url
+        )
 
     def export_s3file(self, file_id: str, export_bucket: Optional[str] = None) -> ZBSendFileResponse:
         """Export a validated or scored file back to Amazon S3 (POST /exportS3file).
@@ -1636,6 +1628,10 @@ class ZeroBounce:
             raise ZBClientException("Empty parameter: name")
         if len(name) > 64:
             raise ZBClientException("Invalid parameter: name (at most 64 characters)")
+        if any(not (char.isalnum() or char in self.IPT_NAME_PUNCTUATION) for char in name):
+            raise ZBClientException(
+                "Invalid parameter: name (letters, numbers, spaces and - / \\ , . & ' ( ) only)"
+            )
         if test_type is not None and test_type not in self.IPT_TEST_TYPES:
             raise ZBClientException("Invalid parameter: test_type (must be 1, 2 or 3)")
         if test_type == 1 and (not sender_email or not sender_email.strip()):
@@ -1788,18 +1784,25 @@ class ZeroBounce:
 
 
     def find_email_format(
-        self, 
-        first_name: str, 
-        domain: str = '', 
+        self,
+        first_name: str = '',
+        domain: str = '',
         company_name: str = '',
-        middle_name: str = '', 
-        last_name: str = ''
+        middle_name: str = '',
+        last_name: str = '',
+        use_post: bool = False,
     ):
+        """Find a person's email address and the domain's format (GET or POST /guessformat).
+
+        Pass exactly one of ``domain`` or ``company_name``. The name fields are optional.
+        """
         if not domain and not company_name:
             raise ZBClientException("Empty parameter: domain or company_name required")
         if domain and company_name:
             raise ZBClientException("Parameter error: domain and company_name cannot be used together")
-        params = {"first_name": first_name}
+        params = {}
+        if first_name:
+            params["first_name"] = first_name
         if domain:
             params["domain"] = domain
         if company_name:
@@ -1809,15 +1812,15 @@ class ZeroBounce:
         if last_name:
             params["last_name"] = last_name
 
-        return self._get(
-            f"{self._base_url}/guessformat",
-            ZBFindEmailFormatResponse,
-            params)
+        return self._get_or_post_form(
+            f"{self._base_url}/guessformat", ZBFindEmailFormatResponse, params, use_post
+        )
 
     def find_domain(
         self,
         domain: str = '',
-        company_name: str = ''
+        company_name: str = '',
+        use_post: bool = False,
     ):
         if not domain and not company_name:
             raise ZBClientException("Empty parameter: domain xor company_name required")
@@ -1828,7 +1831,6 @@ class ZeroBounce:
             params["domain"] = domain
         if company_name:
             params["company_name"] = company_name
-        return self._get(
-            f"{self._base_url}/guessformat",
-            ZBFindDomainResponse,
-            params)
+        return self._get_or_post_form(
+            f"{self._base_url}/guessformat", ZBFindDomainResponse, params, use_post
+        )

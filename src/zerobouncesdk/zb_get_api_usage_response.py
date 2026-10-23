@@ -1,6 +1,9 @@
 from datetime import date, datetime
 
 from ._zb_response import ZBResponse
+from ._zb_utils import parse_datetime
+
+_DATE_FORMATS = ("%m/%d/%Y", "%Y/%m/%d", "%Y-%m-%d")
 
 
 class ZBGetApiUsageResponse(ZBResponse):
@@ -111,6 +114,12 @@ class ZBGetApiUsageResponse(ZBResponse):
     sub_status_role_based_accept_all: int = 0
     """Total number of times the API has a sub status of role_based_accept_all"""
 
+    sub_status_leading_period_removed: int = 0
+    """Total number of times the API has a sub status of leading_period_removed"""
+
+    sub_status_alias_address: int = 0
+    """Total number of times the API has a sub status of alias_address"""
+
     start_date: date = None
     """Start date of query"""
 
@@ -119,7 +128,7 @@ class ZBGetApiUsageResponse(ZBResponse):
 
     def __init__(self, data):
         super().__init__(data)
-        if self.start_date is not None:
-            self.start_date = datetime.strptime(self.start_date, "%m/%d/%Y").date()
-        if self.end_date is not None:
-            self.end_date = datetime.strptime(self.end_date, "%m/%d/%Y").date()
+        # The sample shows m/d/yyyy; the field table says yyyy/mm/dd.
+        for name in ("start_date", "end_date"):
+            parsed = parse_datetime(getattr(self, name), _DATE_FORMATS, name)
+            setattr(self, name, parsed.date() if isinstance(parsed, datetime) else parsed)

@@ -15,15 +15,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `score_email` (`GET /scoring`) and `score_email(..., use_post=True)` (form-encoded `POST /scoring`).
 - Bulk email finder (`send_email_finder_file`, `email_finder_file_status`, `email_finder_get_file`, `email_finder_delete_file`, plus stream upload).
 - Bulk domain search (`send_domain_search_file`, `domain_search_file_status`, `domain_search_get_file`, `domain_search_delete_file`, plus stream upload).
-- List evaluator (`send_list_evaluator_file`, `get_list_evaluator_result`, `send_evaluated_file`).
-- Filters (`add_filter`, `list_filters`, `delete_filter`).
-- Amazon S3 bulk (`list_s3files`, `validate_s3file`, `score_s3file`, `email_finder_s3file`, `domain_search_s3file`, `export_s3file`) and SFTP/FTP bulk (`validate_sftpfile`, `score_sftpfile`, `email_finder_sftpfile`, `domain_search_sftpfile`, `export_sftpfile`). The export bucket and path are optional; without them your account settings are used.
+- List evaluator (`send_list_evaluator_file`, `get_list_evaluator_result`, `send_evaluated_file`). Uploads and results return `ZBListEvaluatorResponse` (`file_id`, `status`, `progress`, the percentages, `abuse`, `do_not_mail`, `spam_trap`).
+- Filters (`add_filter`, `list_filters`, `delete_filter`). `rule` must be `allow` or `block` and `target` `email`, `domain`, `mx`, or `tld`.
+- Amazon S3 bulk (`list_s3files`, `validate_s3file`, `score_s3file`, `email_finder_s3file`, `domain_search_s3file`, `export_s3file`) and SFTP/FTP bulk (`validate_sftpfile`, `score_sftpfile`, `email_finder_sftpfile`, `domain_search_sftpfile`, `export_sftpfile`). Each job sends the documented `file_name`, `has_header_row` (required), `remove_duplicates`, and `return_url`. The export bucket and path are optional; without them your account settings are used.
 - `validate` takes `domain_info` (website availability and WHOIS), `greylist_processing`, and `callback_url` (requires `greylist_processing=True`). `ZBValidateResponse` reads `domain_website_exists` and `domain_registrant_company_name`, and `message` while a greylist retry is still in progress.
 - Inbox Placement Tester (`get_inbox_placement_providers`, `get_inbox_placement_test_types`, `create_inbox_placement_test`, `get_inbox_placement_test`, `list_inbox_placement_tests`, `delete_inbox_placement_test`, `get_inbox_placement_webhook`, `set_inbox_placement_webhook`) on `bulkapi.zerobounce.net/api/ipt`. Its `detail` error messages raise `ZBApiException` with that text.
+- `get_credits`, `get_api_usage`, `get_activity`, `find_email_format`, and `find_domain` take `use_post=True` (form-encoded `POST`, which the API accepts since September 2026).
+- `ZBValidateSubStatus.ai_agent_mailbox`, documented for `valid` and `catch-all` results.
+- `ZBGetActivityResponse.active_first_seen`, and `ZBGetApiUsageResponse` counts for `leading_period_removed` and `alias_address`.
 - `LIST_EVALUATOR_BASE_URL` and `INBOX_PLACEMENT_BASE_URL` set where the list evaluator and Inbox Placement Tester requests go, like `BULK_BASE_URL` for the other bulk files.
 
 ### Changed
 
+- `find_email_format`'s `first_name` is optional, as documented; it is sent only when set.
+- `send_email_finder_file` needs `first_name_column` or `full_name_column`, as documented, and raises `ZBClientException` without one.
 - A custom `base_url` must be an `https://` URL.
 - API requests time out after 120 seconds unless the caller passes `timeout`.
 - API requests do not follow redirects.
@@ -36,6 +41,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `send_file`, `scoring_send_file`, bulk email finder, domain search, and S3 uploads send `has_header_row`, `remove_duplicate`, and `remove_duplicates` as `true` or `false`. `has_header_row=False` is sent.
 - `send_email_finder_file`, `send_domain_search_file`, and `send_list_evaluator_file` send column `0`. They previously treated `0` as empty and rejected it before the request.
 - `find_email_format` raises `ZBApiException` when the API returns a `Message` error, the same way `find_domain` and `guess_format` already did.
+- `find_domain` and `guess_format` raise `ZBApiException` for a lowercase `message` error instead of `KeyError`.
+- An unknown `email_confidence` or `confidence` value is `None` with a warning instead of a `ValueError`.
+- `ZBValidateResponse` reads `free_email`, `mx_found`, and `catchall_domain` sent as the strings `"true"` / `"false"` as booleans (the documented samples send `mx_found` as a string).
+- `processed_at` without fractional seconds, and `get_api_usage` dates in the documented `yyyy/mm/dd` form, parse instead of raising `ValueError`. A date in another format is kept as the original string, with a warning.
 
 ### Security
 

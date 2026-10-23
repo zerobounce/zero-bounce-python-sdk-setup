@@ -411,6 +411,8 @@ response = zero_bounce.score_email("valid@example.com")  # GET /v2/scoring
 print(response.email, response.score)
 ```
 
+`get_credits`, `get_api_usage`, `get_activity`, `score_email`, `validate`, `list_filters`, `find_email_format` and `find_domain` take `use_post=True` to send the same parameters as a form-encoded `POST`, which the API accepts as well as `GET`.
+
 ##### Bulk email finder and domain search
 
 ```python
@@ -437,14 +439,14 @@ except ZBException as e:
 
 ```python
 sent = zero_bounce.send_list_evaluator_file("./list.csv", email_address_column=1)  # at least 100 emails
-result = zero_bounce.get_list_evaluator_result(sent.file_id)  # dict: status, progress, invalid_percentage, ...
+result = zero_bounce.get_list_evaluator_result(sent.file_id)  # .status (processing/finished), .progress, .invalid_percentage, ...
 zero_bounce.send_evaluated_file("./list.csv")  # submit the evaluated list for validation
 ```
 
 ##### Allowlist and blocklist filters
 
 ```python
-zero_bounce.add_filter("block", "domain", "example.com")  # rule: allow | block; target: email | domain | mx | tld
+zero_bounce.add_filter("block", "domain", "example.com")  # rule: allow | block; target: email | domain | mx | tld (checked before sending)
 print(zero_bounce.list_filters())                         # [{"rule": ..., "target": ..., "value": ...}]
 zero_bounce.delete_filter("block", "domain", "example.com")
 ```
@@ -462,18 +464,20 @@ try:
     files = zero_bounce.list_s3files(search="2026")       # [{"Name": ..., "Size": ..., "LastModified": ...}]
     name = files[0]["Name"]                                # full path in the bucket
 
-    job = zero_bounce.validate_s3file(name, has_header_row=True)
-    # Also: score_s3file, email_finder_s3file(name, True), domain_search_s3file(name, True)
-    zero_bounce.export_s3file(job.file_id)                 # export_bucket defaults to the one in your settings
-
-    job = zero_bounce.score_sftpfile("my_file.txt", True, return_url="https://example.com/done")
+    zero_bounce.validate_s3file(name, True, return_url="https://example.com/done")
+    # Also: score_s3file, email_finder_s3file, domain_search_s3file (file_name, has_header_row, ...)
+    zero_bounce.score_sftpfile("my_file.txt", True)       # file name on your SFTP/FTP server
     # Also: validate_sftpfile, email_finder_sftpfile, domain_search_sftpfile
-    zero_bounce.export_sftpfile(job.file_id, export_path="/exports")  # export_path is optional
+
+    # When the file is processed, export it back with its file ID (from return_url's callback,
+    # file_status, or the ZeroBounce app). The bucket/path default to the ones in your settings.
+    zero_bounce.export_s3file("<FILE_ID>")
+    zero_bounce.export_sftpfile("<FILE_ID>", export_path="/exports")
 except ZBException as e:
     print("ZeroBounce S3/SFTP error: " + str(e))
 ```
 
-`remove_duplicates` (default `True` on the API) and `return_url` are optional on every file job.
+`has_header_row` is required; `remove_duplicates` (default `True` on the API) and `return_url` are optional. The documented success response is `success` and `message`, without a file ID.
 
 ##### Inbox Placement Tester
 
