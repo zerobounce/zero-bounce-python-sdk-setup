@@ -215,7 +215,7 @@ class FakeTransport:
             }
         if path.endswith("/deletefile"):
             return {"success": True, "message": "File Deleted", "file_id": recorded.field("file_id"), "file_name": "emails.csv", **echo}
-        if path.endswith("/sendfile") or "listevaluator" in path or "send-evaluated-file" in path or path.endswith("S3file"):
+        if path.endswith("/sendfile") or "listevaluator" in path or "send-evaluated-file" in path or path.endswith("S3file") or path.endswith("SFTPfile"):
             return {"success": True, "message": "File Accepted", "file_id": "file-1", "file_name": "emails.csv", **echo}
         if path.endswith("/guessformat"):
             return {
@@ -234,6 +234,9 @@ class FakeTransport:
             }
         if "/filters/" in path:
             return {"Message": "Filter successfully added", **echo}
+        if path.endswith("/listS3files") and key.startswith("s3files-"):
+            files = [{"Name": "uploads/a.csv", "Size": 100, "LastModified": "Mon, 08 May 2023 00:00:01 GMT"}]
+            return {"success": True, "files": files}
         if path.endswith("/listS3files"):
             return [{"name": "uploads/a.csv", "echo_key": key}]
         if "/listevaluator/" in path:
@@ -333,6 +336,13 @@ class OfflineApiTest(TestCase):
             ("validate_s3file", lambda: self.client.validate_s3file("lists/jan.csv"), "POST", "bulkapi.zerobounce.net", "/validateS3file"),
             ("score_s3file", lambda: self.client.score_s3file("lists/jan.csv"), "POST", "bulkapi.zerobounce.net", "/scoreS3file"),
             ("export_s3file", lambda: self.client.export_s3file("file-9", "export-bucket"), "POST", "bulkapi.zerobounce.net", "/exportS3file"),
+            ("email_finder_s3file", lambda: self.client.email_finder_s3file("lists/people.csv", True), "POST", "bulkapi.zerobounce.net", "/emailFinderS3file"),
+            ("domain_search_s3file", lambda: self.client.domain_search_s3file("lists/domains.csv", True), "POST", "bulkapi.zerobounce.net", "/domainSearchS3file"),
+            ("validate_sftpfile", lambda: self.client.validate_sftpfile("my_file.txt", True), "POST", "bulkapi.zerobounce.net", "/validateSFTPfile"),
+            ("score_sftpfile", lambda: self.client.score_sftpfile("my_file.txt", True), "POST", "bulkapi.zerobounce.net", "/scoreSFTPfile"),
+            ("email_finder_sftpfile", lambda: self.client.email_finder_sftpfile("my_file.txt", True), "POST", "bulkapi.zerobounce.net", "/emailFinderSFTPfile"),
+            ("domain_search_sftpfile", lambda: self.client.domain_search_sftpfile("my_file.txt", True), "POST", "bulkapi.zerobounce.net", "/domainSearchSFTPfile"),
+            ("export_sftpfile", lambda: self.client.export_sftpfile("file-9"), "POST", "bulkapi.zerobounce.net", "/exportSFTPfile"),
             ("guess_format", lambda: self.client.guess_format("example.com", first_name="Ada"), "GET", "api.zerobounce.net", "/v2/guessformat"),
             ("find_email_format", lambda: self.client.find_email_format("Ada", domain="example.com"), "GET", "api.zerobounce.net", "/v2/guessformat"),
             ("find_domain", lambda: self.client.find_domain(domain="example.com"), "GET", "api.zerobounce.net", "/v2/guessformat"),
@@ -495,6 +505,40 @@ class OfflineApiTest(TestCase):
         self.assertEqual(recorded.query["page"], "2")
         self.assertEqual(recorded.query["page_size"], "100")
 
+    def test_s3_and_sftp_file_jobs_send_the_documented_fields(self):
+        self.client.email_finder_s3file("lists/people.csv", False)
+        recorded = self._only()
+        self.assertEqual(recorded.form, {"api_key": "client-key", "file_name": "lists/people.csv", "has_header_row": "false"})
+
+        self.transport.requests.clear()
+        self.client.domain_search_sftpfile("my_file.txt", True, remove_duplicates=False, return_url="https://hooks.example.com/done")
+        recorded = self._only()
+        self.assertEqual(recorded.form["has_header_row"], "true")
+        self.assertEqual(recorded.form["remove_duplicates"], "false")
+        self.assertEqual(recorded.form["return_url"], "https://hooks.example.com/done")
+        self.assertNotIn("remove_duplicate", recorded.form)
+
+        self.transport.requests.clear()
+        self.client.validate_sftpfile(None, True)
+        self.assertNotIn("file_name", self._only().form)
+
+        self.transport.requests.clear()
+        self.client.score_s3file("lists/jan.csv", has_header_row=True, return_url="https://hooks.example.com/s")
+        self.assertEqual(self._only().form["return_url"], "https://hooks.example.com/s")
+
+        self.transport.requests.clear()
+        self.client.export_s3file("file-9")
+        self.assertEqual(self._only().form, {"api_key": "client-key", "file_id": "file-9"})
+
+        self.transport.requests.clear()
+        self.client.export_sftpfile("file-9", export_path="/exports")
+        self.assertEqual(self._only().form["export_path"], "/exports")
+
+    def test_list_s3files_reads_the_documented_files_object(self):
+        files = ZeroBounce("s3files-key").list_s3files()
+        self.assertEqual(files[0]["Name"], "uploads/a.csv")
+        self.assertEqual(self.client.list_s3files()[0]["name"], "uploads/a.csv")
+
     def test_query_values_are_percent_encoded(self):
         client = ZeroBounce("key with space&plus")
         client.validate("a b@ex.com")
@@ -585,6 +629,13 @@ class OfflineApiTest(TestCase):
             lambda: self.client.validate_s3file("  "),
             lambda: self.client.export_s3file("  ", "bucket"),
             lambda: self.client.export_s3file("file-9", "  "),
+            lambda: self.client.email_finder_s3file("  ", True),
+            lambda: self.client.domain_search_s3file("lists/d.csv", None),
+            lambda: self.client.score_sftpfile(None, True),
+            lambda: self.client.validate_sftpfile("  ", True),
+            lambda: self.client.email_finder_sftpfile("f.txt", None),
+            lambda: self.client.export_sftpfile("  "),
+            lambda: self.client.export_sftpfile("file-9", " "),
             lambda: self.client.get_list_evaluator_result("  "),
             lambda: self.client.email_finder_file_status("  "),
             lambda: self.client.validate("a@b.com", callback_url="https://hooks.example.com/zb"),
@@ -631,6 +682,9 @@ class OfflineApiTest(TestCase):
             lambda: client.list_filters(),
             lambda: client.add_filter("block", "domain", "x.com"),
             lambda: client.list_s3files(),
+            lambda: client.email_finder_s3file("lists/people.csv", True),
+            lambda: client.validate_sftpfile("my_file.txt", True),
+            lambda: client.export_sftpfile("file-9"),
             lambda: client.find_email_format("Ada", domain="example.com"),
             lambda: client.find_domain(domain="example.com"),
             lambda: client.guess_format("example.com"),

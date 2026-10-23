@@ -464,6 +464,32 @@ print(zero_bounce.list_filters())                         # [{"rule": ..., "targ
 zero_bounce.delete_filter("block", "domain", "example.com")
 ```
 
+### Amazon S3 and SFTP/FTP files
+
+These run validation, scoring, the email finder or domain search on a file already in your Amazon S3 bucket or on your SFTP/FTP server, as configured in your ZeroBounce settings. See [Amazon S3 Bulk API](https://www.zerobounce.net/docs/api-integrations/amazon-s3-bulk-api) and [SFTP/FTP Bulk API](https://www.zerobounce.net/docs/api-integrations/sftp_bulk_api).
+
+```python
+from zerobouncesdk import ZeroBounce, ZBException
+
+zero_bounce = ZeroBounce("<YOUR_API_KEY>")
+
+try:
+    files = zero_bounce.list_s3files(search="2026")       # [{"Name": ..., "Size": ..., "LastModified": ...}]
+    name = files[0]["Name"]                                # full path in the bucket
+
+    job = zero_bounce.validate_s3file(name, has_header_row=True)
+    # Also: score_s3file, email_finder_s3file(name, True), domain_search_s3file(name, True)
+    zero_bounce.export_s3file(job.file_id)                 # export_bucket defaults to the one in your settings
+
+    job = zero_bounce.score_sftpfile("my_file.txt", True, return_url="https://example.com/done")
+    # Also: validate_sftpfile, email_finder_sftpfile, domain_search_sftpfile
+    zero_bounce.export_sftpfile(job.file_id, export_path="/exports")  # export_path is optional
+except ZBException as e:
+    print("ZeroBounce S3/SFTP error: " + str(e))
+```
+
+`remove_duplicates` (default `True` on the API) and `return_url` are optional on every file job.
+
 ### Inbox Placement Tester
 
 Tests use the account's inbox-test credits.

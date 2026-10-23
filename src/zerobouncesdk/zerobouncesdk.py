@@ -1368,6 +1368,9 @@ class ZeroBounce:
         )
         if isinstance(payload, dict) and payload.get("error"):
             raise ZBApiException(payload["error"])
+        # Documented as {"success": true, "files": [{"Name", "Size", "LastModified"}]}.
+        if isinstance(payload, dict) and isinstance(payload.get("files"), list):
+            return payload["files"]
         if not isinstance(payload, list):
             raise ZBApiException("Unexpected listS3files response")
         return payload
@@ -1418,6 +1421,7 @@ class ZeroBounce:
         remove_duplicates: bool = None,
         remove_duplicate: bool = None,
         email_address_column: int = None,
+        return_url: str = None,
     ) -> ZBSendFileResponse:
         if not file_name or not file_name.strip():
             raise ZBClientException("Empty parameter: file_name")
@@ -1430,17 +1434,146 @@ class ZeroBounce:
             fields["remove_duplicate"] = remove_duplicate
         if email_address_column is not None:
             fields["email_address_column"] = email_address_column
+        if return_url is not None:
+            fields["return_url"] = return_url
         return self._post_bulk_root_form("/scoreS3file", fields)
 
-    def export_s3file(self, file_id: str, export_bucket: str) -> ZBSendFileResponse:
+    def export_s3file(self, file_id: str, export_bucket: Optional[str] = None) -> ZBSendFileResponse:
+        """Export a validated or scored file back to Amazon S3 (POST /exportS3file).
+
+        Without ``export_bucket`` the export bucket from your ZeroBounce settings is used.
+        """
         if not file_id.strip():
             raise ZBClientException("Empty parameter: file_id")
-        if not export_bucket or not export_bucket.strip():
+        if export_bucket is not None and not export_bucket.strip():
             raise ZBClientException("Empty parameter: export_bucket")
-        return self._post_bulk_root_form(
-            "/exportS3file",
-            {"file_id": file_id, "export_bucket": export_bucket},
+        fields = {"file_id": file_id}
+        if export_bucket is not None:
+            fields["export_bucket"] = export_bucket
+        return self._post_bulk_root_form("/exportS3file", fields)
+
+    def _bulk_root_file_job(
+        self,
+        path: str,
+        file_name: Optional[str],
+        has_header_row: bool,
+        remove_duplicates: Optional[bool],
+        return_url: Optional[str],
+        *,
+        file_name_required: bool = True,
+    ) -> ZBSendFileResponse:
+        """POST one of the documented S3 / SFTP file jobs on the bulkapi root."""
+        if (file_name is None and file_name_required) or (file_name is not None and not file_name.strip()):
+            raise ZBClientException("Empty parameter: file_name")
+        if has_header_row is None:
+            raise ZBClientException("Empty parameter: has_header_row")
+        fields = {"has_header_row": has_header_row}
+        if file_name is not None:
+            fields["file_name"] = file_name
+        if remove_duplicates is not None:
+            fields["remove_duplicates"] = remove_duplicates
+        if return_url is not None:
+            fields["return_url"] = return_url
+        return self._post_bulk_root_form(path, fields)
+
+    def email_finder_s3file(
+        self,
+        file_name: str,
+        has_header_row: bool,
+        remove_duplicates: Optional[bool] = None,
+        return_url: Optional[str] = None,
+    ) -> ZBSendFileResponse:
+        """Run the email finder on a file in your Amazon S3 bucket (POST /emailFinderS3file).
+
+        ``file_name`` is the full path as returned by ``list_s3files``.
+        """
+        return self._bulk_root_file_job(
+            "/emailFinderS3file", file_name, has_header_row, remove_duplicates, return_url
         )
+
+    def domain_search_s3file(
+        self,
+        file_name: str,
+        has_header_row: bool,
+        remove_duplicates: Optional[bool] = None,
+        return_url: Optional[str] = None,
+    ) -> ZBSendFileResponse:
+        """Run domain search on a file in your Amazon S3 bucket (POST /domainSearchS3file)."""
+        return self._bulk_root_file_job(
+            "/domainSearchS3file", file_name, has_header_row, remove_duplicates, return_url
+        )
+
+    # SFTP / FTP bulk (bulkapi root). The server, path and protocol come from your ZeroBounce settings.
+
+    def validate_sftpfile(
+        self,
+        file_name: Optional[str],
+        has_header_row: bool,
+        remove_duplicates: Optional[bool] = None,
+        return_url: Optional[str] = None,
+    ) -> ZBSendFileResponse:
+        """Validate a file from your SFTP/FTP server (POST /validateSFTPfile).
+
+        The docs list ``file_name`` as optional for this endpoint; pass ``None`` to leave it out.
+        """
+        return self._bulk_root_file_job(
+            "/validateSFTPfile",
+            file_name,
+            has_header_row,
+            remove_duplicates,
+            return_url,
+            file_name_required=False,
+        )
+
+    def score_sftpfile(
+        self,
+        file_name: str,
+        has_header_row: bool,
+        remove_duplicates: Optional[bool] = None,
+        return_url: Optional[str] = None,
+    ) -> ZBSendFileResponse:
+        """Score a file from your SFTP/FTP server (POST /scoreSFTPfile). ``file_name`` is e.g. ``my_file.txt``."""
+        return self._bulk_root_file_job(
+            "/scoreSFTPfile", file_name, has_header_row, remove_duplicates, return_url
+        )
+
+    def email_finder_sftpfile(
+        self,
+        file_name: str,
+        has_header_row: bool,
+        remove_duplicates: Optional[bool] = None,
+        return_url: Optional[str] = None,
+    ) -> ZBSendFileResponse:
+        """Run the email finder on a file from your SFTP/FTP server (POST /emailFinderSFTPfile)."""
+        return self._bulk_root_file_job(
+            "/emailFinderSFTPfile", file_name, has_header_row, remove_duplicates, return_url
+        )
+
+    def domain_search_sftpfile(
+        self,
+        file_name: str,
+        has_header_row: bool,
+        remove_duplicates: Optional[bool] = None,
+        return_url: Optional[str] = None,
+    ) -> ZBSendFileResponse:
+        """Run domain search on a file from your SFTP/FTP server (POST /domainSearchSFTPfile)."""
+        return self._bulk_root_file_job(
+            "/domainSearchSFTPfile", file_name, has_header_row, remove_duplicates, return_url
+        )
+
+    def export_sftpfile(self, file_id: str, export_path: Optional[str] = None) -> ZBSendFileResponse:
+        """Export a validated or scored file back to your SFTP/FTP server (POST /exportSFTPfile).
+
+        Without ``export_path`` the export path from your ZeroBounce settings is used.
+        """
+        if not file_id or not file_id.strip():
+            raise ZBClientException("Empty parameter: file_id")
+        if export_path is not None and not export_path.strip():
+            raise ZBClientException("Empty parameter: export_path")
+        fields = {"file_id": file_id}
+        if export_path is not None:
+            fields["export_path"] = export_path
+        return self._post_bulk_root_form("/exportSFTPfile", fields)
 
     # Inbox Placement Tester (bulkapi /api/ipt). Uses the account's inbox-test credits.
 
