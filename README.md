@@ -664,3 +664,5 @@ OK
 2. **Actions → Publish → Run workflow** with that tag.
 
 Registry: [zerobouncesdk on PyPI](https://pypi.org/project/zerobouncesdk/)
+
+The workflow publishes with [PyPI Trusted Publishing](https://docs.pypi.org/trusted-publishers/); no PyPI token is stored anywhere. The `zerobouncesdk` project on PyPI trusts this repository's `.github/workflows/publish.yml` running in the `release` environment, and the publish job (which has `id-token: write`) exchanges its GitHub OIDC token for a short-lived upload token. Each release also gets signed attestations. Renaming the workflow file or the environment breaks publishing until the trusted publisher on PyPI (project → Publishing) is updated to match.

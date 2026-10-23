@@ -126,8 +126,9 @@ jobs:
         run: python -m build
 
       - name: Publish to PyPI
-        # Trusted Publishing: no stored token. PyPI accepts a short-lived OIDC token from this workflow
-        # (publish.yml, environment "release"), which is why the job has id-token: write.
+        # PyPI Trusted Publishing, the only way this package is published: the PyPI project trusts this
+        # repository's publish.yml in the "release" environment, and the action exchanges the job's OIDC
+        # token (id-token: write) for a short-lived upload token. No PyPI token exists or is needed.
         uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
 
   release:
