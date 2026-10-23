@@ -1,6 +1,7 @@
 """Utility functions for ZeroBounce SDK."""
 
 import warnings
+from datetime import datetime
 
 
 def safe_enum_convert(enum_class, value, field_name="field", lowercase=False):
@@ -41,3 +42,31 @@ def safe_enum_convert(enum_class, value, field_name="field", lowercase=False):
             stacklevel=3
         )
         return None
+
+
+def parse_bool(value):
+    """The API documents some flags as JSON booleans and shows others as "true"/"false" strings."""
+    if isinstance(value, str):
+        lowered = value.strip().lower()
+        if lowered == "true":
+            return True
+        if lowered == "false":
+            return False
+    return value
+
+
+def parse_datetime(value, formats, field_name="field"):
+    """Parse ``value`` with the first matching format; keep the original string (with a warning) if none match."""
+    if value is None or not isinstance(value, str):
+        return value
+    for fmt in formats:
+        try:
+            return datetime.strptime(value.strip(), fmt)
+        except ValueError:
+            continue
+    warnings.warn(
+        f"Unexpected {field_name} format '{value}' received from API; keeping the original string.",
+        UserWarning,
+        stacklevel=3,
+    )
+    return value

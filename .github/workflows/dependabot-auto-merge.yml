@@ -1,5 +1,9 @@
 name: Dependabot security auto-merge
 
+# Dependabot here opens security updates only (.github/dependabot.yml). Patch and minor updates are
+# approved and merged once checks pass. A major update gets a comment and is left for a person to
+# review and merge, because it can change behaviour even when the tests pass.
+
 on:
   pull_request:
     types: [opened, synchronize, reopened]
@@ -18,14 +22,26 @@ jobs:
       github.event_name == 'pull_request'
       && github.event.pull_request.user.login == 'dependabot[bot]'
     steps:
-      - name: Approve Dependabot pull request
-        run: gh pr review --approve "$PR_URL"
+      - name: Read the update type
+        id: metadata
+        uses: dependabot/fetch-metadata@25dd0e34f4fe68f24cc83900b1fe3fe149efef98 # v3.1.0
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Approve and auto-merge a patch or minor update
+        if: steps.metadata.outputs.update-type != 'version-update:semver-major'
+        run: |
+          gh pr review --approve "$PR_URL"
+          gh pr merge --auto --merge "$PR_URL"
         env:
           PR_URL: ${{ github.event.pull_request.html_url }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Enable auto-merge when checks pass
-        run: gh pr merge --auto --merge "$PR_URL"
+      - name: Leave a major update for review
+        if: steps.metadata.outputs.update-type == 'version-update:semver-major'
+        run: >-
+          gh pr comment "$PR_URL" --body "Major version update: not auto-merged.
+          Review the changelog and merge by hand."
         env:
           PR_URL: ${{ github.event.pull_request.html_url }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -34,16 +50,17 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name == 'schedule'
     steps:
-      - name: Approve and queue merge for open Dependabot PRs
+      - name: Re-queue Dependabot pull requests already cleared for auto-merge
+        # Only PRs the job above approved (patch or minor); majors are never approved by a workflow.
         run: |
           set -euo pipefail
-          mapfile -t urls < <(gh pr list --author app/dependabot --state open --json url --jq '.[].url')
+          mapfile -t urls < <(gh pr list --repo "$GITHUB_REPOSITORY" --author app/dependabot --state open \
+            --search "review:approved" --json url --jq '.[].url')
           if [ "${#urls[@]}" -eq 0 ]; then
-            echo "No open Dependabot pull requests."
+            echo "No approved Dependabot pull requests to queue."
             exit 0
           fi
           for url in "${urls[@]}"; do
-            gh pr review --approve "$url" || true
             gh pr merge --auto --merge "$url" || true
           done
         env:

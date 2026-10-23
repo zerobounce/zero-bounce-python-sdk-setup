@@ -35,3 +35,4 @@ class ZBValidateSubStatus(Enum):
     accept_all = "accept_all"
     role_based_accept_all = "role_based_accept_all"
     gold = "gold"
+    ai_agent_mailbox = "ai_agent_mailbox"

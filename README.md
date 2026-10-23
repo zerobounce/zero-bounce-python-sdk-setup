@@ -14,6 +14,8 @@ More information about ZeroBounce you can find in the [official documentation](h
 pip install zerobouncesdk
 ```
 
+Python 3.10 or newer is recommended: on 3.9 and older, the newest `requests` and `urllib3` releases (with their security fixes) cannot be installed.
+
 ## USAGE
 Import the sdk in your file:
 
@@ -284,6 +286,8 @@ local_download_path = "./dwnld_file.csv"    # The path where the file will be do
 
 try:
     response = zero_bounce.get_file(file_id, local_download_path)
+    # Large result files: stream=True writes the file in chunks instead of holding it in memory first
+    # response = zero_bounce.get_file(file_id, local_download_path, stream=True)
     print("ZeroBounce get_file response: " + str(response))
 except ZBException as e:
     print("ZeroBounce get_file error: " + str(e))
@@ -393,6 +397,186 @@ except ZBException as e:
     print("ZeroBounce delete_file error: " + str(e))
 ```
 
+### Validation options
+
+* ##### Validate with activity data, Verify+, WHOIS and greylist retry
+```python
+from zerobouncesdk import ZeroBounce, ZBException
+
+zero_bounce = ZeroBounce("<YOUR_API_KEY>")
+
+try:
+    response = zero_bounce.validate(
+        "valid@example.com",
+        timeout=30,                # 3-60 seconds; unknown/greylisted when it runs out
+        activity_data=True,        # adds active_in_days and active_first_seen
+        verify_plus=True,          # overrides the account's Verify+ setting
+        domain_info=True,          # adds domain_website_exists and domain_registrant_company_name
+        greylist_processing=True,  # process a greylisted address again instead of returning unknown
+    )
+    if response.message:           # greylist retry still running: call validate again in about 30 minutes
+        print(response.message)
+    else:
+        print(response.status, response.domain_website_exists, response.domain_registrant_company_name)
+except ZBException as e:
+    print("ZeroBounce validate error: " + str(e))
+```
+
+With `greylist_processing=True`, pass `callback_url="https://..."` to have the result sent there instead of picking it up. Every option is omitted from the request until you set it, and `use_post=True` sends them as a form-encoded `POST`.
+
+* ##### Score one email in real time
+```python
+response = zero_bounce.score_email("valid@example.com")  # GET /v2/scoring
+print(response.email, response.score)
+```
+
+`get_credits`, `get_api_usage`, `get_activity`, `score_email`, `validate`, `list_filters`, `find_email_format` and `find_domain` take `use_post=True` to send the same parameters as a form-encoded `POST`, which the API accepts as well as `GET`.
+
+### Bulk email finder and domain search
+
+```python
+from zerobouncesdk import ZeroBounce, ZBException
+
+zero_bounce = ZeroBounce("<YOUR_API_KEY>")
+
+try:
+    # Columns are 1-based. Email finder needs a domain column and a first-name or full-name column.
+    sent = zero_bounce.send_email_finder_file(
+        "./people.csv", domain_column=3, first_name_column=1, last_name_column=2, has_header_row=True
+    )
+    print(zero_bounce.email_finder_file_status(sent.file_id))
+    zero_bounce.email_finder_get_file(sent.file_id, "./people_results.csv")
+    zero_bounce.email_finder_delete_file(sent.file_id)  # only when the status is Complete
+
+    sent = zero_bounce.send_domain_search_file("./domains.csv", domain_column=1, has_header_row=True)
+    print(zero_bounce.domain_search_file_status(sent.file_id))
+except ZBException as e:
+    print("ZeroBounce bulk finder error: " + str(e))
+```
+
+### List evaluator
+
+```python
+sent = zero_bounce.send_list_evaluator_file("./list.csv", email_address_column=1)  # at least 100 emails
+result = zero_bounce.get_list_evaluator_result(sent.file_id)  # .status (processing/finished), .progress, .invalid_percentage, ...
+zero_bounce.send_evaluated_file("./list.csv")  # submit the evaluated list for validation
+```
+
+### Allowlist and blocklist filters
+
+```python
+zero_bounce.add_filter("block", "domain", "example.com")  # rule: allow | block; target: email | domain | mx | tld (checked before sending)
+print(zero_bounce.list_filters())                         # [{"rule": ..., "target": ..., "value": ...}]
+zero_bounce.delete_filter("block", "domain", "example.com")
+```
+
+### Amazon S3 and SFTP/FTP files
+
+These run validation, scoring, the email finder or domain search on a file already in your Amazon S3 bucket or on your SFTP/FTP server, as configured in your ZeroBounce settings. See [Amazon S3 Bulk API](https://www.zerobounce.net/docs/api-integrations/amazon-s3-bulk-api) and [SFTP/FTP Bulk API](https://www.zerobounce.net/docs/api-integrations/sftp_bulk_api).
+
+```python
+from zerobouncesdk import ZeroBounce, ZBException
+
+zero_bounce = ZeroBounce("<YOUR_API_KEY>")
+
+try:
+    files = zero_bounce.list_s3files(search="2026")       # [{"Name": ..., "Size": ..., "LastModified": ...}]
+    name = files[0]["Name"]                                # full path in the bucket
+
+    zero_bounce.validate_s3file(name, True, return_url="https://example.com/done")
+    # Also: score_s3file, email_finder_s3file, domain_search_s3file (file_name, has_header_row, ...)
+    zero_bounce.score_sftpfile("my_file.txt", True)       # file name on your SFTP/FTP server
+    # Also: validate_sftpfile, email_finder_sftpfile, domain_search_sftpfile
+
+    # When the file is processed, export it back with its file ID (from return_url's callback,
+    # file_status, or the ZeroBounce app). The bucket/path default to the ones in your settings.
+    zero_bounce.export_s3file("<FILE_ID>")
+    zero_bounce.export_sftpfile("<FILE_ID>", export_path="/exports")
+except ZBException as e:
+    print("ZeroBounce S3/SFTP error: " + str(e))
+```
+
+`has_header_row` is required; `remove_duplicates` (default `True` on the API) and `return_url` are optional. The documented success response is `success` and `message`, without a file ID.
+
+### Inbox Placement Tester
+
+Tests use the account's inbox-test credits. The key is sent in the `Authorization: Bearer` header.
+
+```python
+from zerobouncesdk import ZeroBounce, ZBException
+
+zero_bounce = ZeroBounce("<YOUR_API_KEY>")
+
+try:
+    providers = zero_bounce.get_inbox_placement_providers()
+    test = zero_bounce.create_inbox_placement_test(
+        "Spring launch",                  # unique, at most 64 characters
+        test_type=3,                      # 1 Email (needs sender_email), 2 Unique ID, 3 Auto Alias
+        webhook_url="https://example.com/ipt-webhook",
+    )
+    print(test["emailAddressList"])       # send the campaign to these seed addresses
+
+    result = zero_bounce.get_inbox_placement_test(test["id"])
+    print(result["status"], result.get("percentages"))
+
+    finished = zero_bounce.list_inbox_placement_tests(status="finished", page_size=25)
+    zero_bounce.delete_inbox_placement_test(test["id"])  # finished tests only
+    zero_bounce.set_inbox_placement_webhook("https://example.com/ipt-webhook")
+    print(zero_bounce.get_inbox_placement_webhook())
+except ZBException as e:
+    print("ZeroBounce inbox placement error: " + str(e))
+```
+
+### Warmup API
+
+The [Warmup API](https://www.zerobounce.net/docs/warmup-api) has its own client: it uses a Warmup API key (bound to one team) in an `API-Key` header and its own host. Pass the base URL ZeroBounce gave you if it differs from the default `https://warmup-api.zerobounce.net`.
+
+```python
+from zerobouncesdk import ZeroBounceWarmup, ZBException, ZBApiException
+
+warmup = ZeroBounceWarmup("<YOUR_WARMUP_API_KEY>")
+
+try:
+    print(warmup.get_engagement_rules())                       # -1 Custom, 0 Default ... 4 Protect
+    warmup.add_sending_account("sender@example.com", "self_managed", engagement_rule_id=0)
+    warmup.add_sending_account(
+        "news@example.com",
+        "zb_managed",
+        email_content={"company_name": "Acme", "types_of_emails": ["newsletter"]},
+        managed_sending={"weekdays_only": True, "timezone_offset": 3.0, "warmup_start_date": "2026-11-02"},
+    )
+    print(warmup.get_sending_account("sender@example.com"))
+    print(warmup.check_domain_dmarc("example.com", dkim_selector="default"))
+    warmup.set_engagement_rule("sender@example.com", 1)        # returns None (HTTP 204)
+    warmup.create_custom_engagement("sender@example.com", reply_pct=20, important_pct=25, click_pct=25)
+    print(warmup.get_statistics_per_day("sender@example.com", "2026-10-01", "2026-10-14"))
+    csv_text = warmup.download_statistics("sender@example.com", "./stats.csv")
+    warmup.update_sending_account("sender@example.com", engagement_rule_id=0, status_id=4, auto_enable=False)  # 4 = Paused
+except ZBApiException as e:
+    if e.status_code == 429:                                   # rate limit, or the custom-rule 7 day cooldown
+        print("Try again later: " + str(e))
+    else:
+        print("ZeroBounce warmup error: " + str(e))
+except ZBException as e:
+    print("ZeroBounce warmup error: " + str(e))
+```
+
+Every documented endpoint has a method: sending accounts (`list_sending_accounts`, `get_sending_account`, `add_sending_account`, `update_sending_account`, `delete_sending_account`, `change_from_address`, `list_from_addresses`), engagement (`get_engagement_rules`, `set_engagement_rule`, `get_custom_engagement`, `create_custom_engagement`, `update_custom_engagement`, `delete_custom_engagement`), and statistics and utilities (`get_seeds`, `download_seeds`, `get_seed_count`, `get_progress_today`, `get_sent_today`, `get_emails_per_day`, `get_statistics`, `get_statistics_per_day`, `get_statistics_detailed`, `download_statistics`, `get_from_address_statistics`, `check_domain_dmarc`, `test_smtp_configuration`). Calls the API answers with 204 or an empty body return `None`; the two CSV downloads return the CSV text.
+
+### Other hosts
+
+`base_url` sets the host of the single-request API (validate, scoring, email finder, filters). The bulk APIs have their own class attributes, which you can set on an instance. ZeroBounce documents no regional bulk host, so with an EU or US `base_url` the bulk calls still go to `bulkapi.zerobounce.net`; the client warns once (`UserWarning`) when that happens, unless you set the bulk URLs yourself.
+
+```python
+zero_bounce = ZeroBounce("<YOUR_API_KEY>", base_url="https://api-eu.zerobounce.net/v2")
+zero_bounce.BULK_BASE_URL = "https://bulkapi.zerobounce.net/v2"                     # send/status/get/delete file
+zero_bounce.SCORING_BASE_URL = "https://bulkapi.zerobounce.net/v2/scoring"
+zero_bounce.EMAIL_FINDER_BASE_URL = "https://bulkapi.zerobounce.net/email-finder"
+zero_bounce.DOMAIN_SEARCH_BASE_URL = "https://bulkapi.zerobounce.net/domain-search"
+zero_bounce.LIST_EVALUATOR_BASE_URL = "https://bulkapi.zerobounce.net/v2/listevaluator"
+zero_bounce.INBOX_PLACEMENT_BASE_URL = "https://bulkapi.zerobounce.net/api/ipt"
+```
+
 * ##### (Deprecated) Identify the correct email format when you provide a name and email domain
 
 > **⚠️ Deprecated:** The `guess_format` method is deprecated and will be removed in future versions. Use `find_email_format` or `find_domain` instead (see examples above).
@@ -480,3 +664,5 @@ OK
 2. **Actions → Publish → Run workflow** with that tag.
 
 Registry: [zerobouncesdk on PyPI](https://pypi.org/project/zerobouncesdk/)
+
+The workflow publishes with [PyPI Trusted Publishing](https://docs.pypi.org/trusted-publishers/); no PyPI token is stored anywhere. The `zerobouncesdk` project on PyPI trusts this repository's `.github/workflows/publish.yml` running in the `release` environment, and the publish job (which has `id-token: write`) exchanges its GitHub OIDC token for a short-lived upload token. Each release also gets signed attestations. Renaming the workflow file or the environment breaks publishing until the trusted publisher on PyPI (project → Publishing) is updated to match.

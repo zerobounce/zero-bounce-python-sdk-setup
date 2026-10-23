@@ -2,6 +2,7 @@ from typing import List
 
 from . import ZBConfidence, ZBApiException
 from ._zb_response import ZBResponse
+from ._zb_utils import safe_enum_convert
 from .zb_guess_format_response import ZBDomainFormat
 
 
@@ -32,11 +33,10 @@ class ZBFindDomainResponse(ZBResponse):
     def __init__(self, data):
         super().__init__(data)
         if "Message" in data or "message" in data:
-            message = data.get("message", data["Message"])
+            message = data.get("message") or data.get("Message")
             raise ZBApiException(message)
 
-        if self.confidence and isinstance(self.confidence, str):
-            self.confidence = ZBConfidence(self.confidence.lower())
+        self.confidence = safe_enum_convert(ZBConfidence, self.confidence, "confidence", lowercase=True)
 
         self.other_domain_formats = [
             ZBDomainFormat(df_data) for df_data in data.get("other_domain_formats", [])
