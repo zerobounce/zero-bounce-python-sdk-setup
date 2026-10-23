@@ -160,7 +160,11 @@ class ZeroBounceWarmup:
     # -- sending accounts ---------------------------------------------------------------------
 
     def list_sending_accounts(self):
-        """Every sending account of the key's team (GET /sending-accounts)."""
+        """Every sending account of the key's team (GET /sending-accounts).
+
+        Returns ``{"accounts": [...], "statistics": {...}}``, or an empty list when the team has none
+        (what the live API sends).
+        """
         return self._json("GET", "/sending-accounts")
 
     def get_sending_account(self, from_address: str):

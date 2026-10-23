@@ -323,7 +323,9 @@ class WarmupLiveTest(unittest.TestCase):
 
     def test_reads(self):
         w = self.warmup
-        self.assertIn("accounts", w.list_sending_accounts())
+        accounts = w.list_sending_accounts()
+        if accounts != []:  # the API sends a bare [] when the team has no sending accounts
+            self.assertIn("accounts", accounts)
         self.assertEqual({rule["id"] for rule in w.get_engagement_rules()}, {-1, 0, 1, 2, 3, 4})
         self.assertTrue(w.get_seeds())
         self.assertTrue(w.download_seeds().startswith("seed,provider"))
