@@ -630,14 +630,28 @@ python -m pytest
 `python -m pytest` runs every offline suite: the scripted unit tests and the `tests/test_*.py` suites, which answer through a fake transport and never call the API. CI runs the same commands, with coverage.
 
 ### Live API tests
-`tests/zero_bounce_integration_test.py` calls the real API and is not collected by `pytest`. Run it with a valid key:
+Two suites call the real API. Neither is collected by `pytest` or run in CI; without a key their tests are skipped.
+
+`tests/live_api_test.py` calls every SDK method, both clients, to check the API accepts each payload and the responses parse:
 
 ```bash
-export ZEROBOUNCE_API_KEY=<apikey>
-python -m unittest tests.zero_bounce_integration_test -v
+export ZEROBOUNCE_API_KEY=<apikey>                # validation API
+export ZEROBOUNCE_WARMUP_API_KEY=<warmup apikey>  # Warmup API (optional)
+python -m unittest tests.live_api_test -v
 ```
 
-Without `ZEROBOUNCE_API_KEY` its tests are skipped. It covers the original single-request methods; the newer APIs are tested offline only.
+By default it makes only free calls (sandbox addresses, reads, and requests expected to fail, such as unknown file IDs or S3 / SFTP without an integration) and fails if the credit balance changed. Opt in to more:
+
+- `ZEROBOUNCE_LIVE_SPEND=1`: spends credits on scoring, activity, the email finder, and full bulk round trips (upload, wait, download, delete) for validation, scoring, email finder, domain search and the list evaluator. Every job is deleted afterwards.
+- `ZEROBOUNCE_LIVE_CHANGES=1`: reversible account changes, undone in cleanup even when a test fails: a test allowlist filter and a self-managed Warmup sending account.
+
+It never creates an Inbox Placement test, sets its webhook, or starts ZB-managed Warmup onboarding: the API cannot undo those.
+
+`tests/zero_bounce_integration_test.py` is the original, smaller live suite for the single-request methods:
+
+```bash
+python -m unittest tests.zero_bounce_integration_test -v
+```
 
 ### Run tests with Docker
 ```bash

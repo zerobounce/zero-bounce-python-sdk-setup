@@ -14,7 +14,8 @@ Guidance for AI coding agents working in this repository.
 - `tests/zero_bounce_test_case.py`: scripted unit tests. They patch `zerobouncesdk.zerobouncesdk.requests`.
 - `tests/test_offline_edges.py`, `tests/test_warmup_offline.py`, `tests/test_security_offline.py` and `tests/test_streaming_and_regions_offline.py`: more offline suites on the same principle (error bodies and every optional field; the Warmup API; where keys travel and that they never reach an exception; streamed downloads and the regional-host warning).
 - `tests/test_offline_api.py`: offline suite. It patches `requests.sessions.Session.send`, so the real `requests` client builds the URL and body and the fake answers without the network.
-- `tests/zero_bounce_integration_test.py`: live API tests. `pytest` does not collect this file. Run it with `python -m unittest tests.zero_bounce_integration_test` when `ZEROBOUNCE_API_KEY` is set.
+- `tests/live_api_test.py`: opt-in live suite that calls every method of both clients (`ZEROBOUNCE_API_KEY`, `ZEROBOUNCE_WARMUP_API_KEY`). Free calls by default; `ZEROBOUNCE_LIVE_SPEND=1` adds credit-spending calls and bulk round trips, `ZEROBOUNCE_LIVE_CHANGES=1` reversible account changes. `pytest` and CI never run it: `python -m unittest tests.live_api_test -v`.
+- `tests/zero_bounce_integration_test.py`: the original live tests. `pytest` does not collect this file. Run it with `python -m unittest tests.zero_bounce_integration_test` when `ZEROBOUNCE_API_KEY` is set.
 - `pyproject.toml`: the only version field, `version = "x.y.z"`. `setup.py` calls `setup()` and reads that file.
 
 ## Commands
@@ -50,7 +51,7 @@ CI (`.github/workflows/sdk_ci.yml`) runs `ruff check`, `compileall`, then `pytho
 - **Do not commit `.env`.** It is gitignored and may hold a real key. Tests must not call the live API.
 - Match the surrounding style. Do not reformat unrelated code.
 
-- **The live API wins over the docs.** Where they disagree, follow what the API accepts and say so in the docstring. Known cases: `validate_batch` `timeout` must be a JSON string; `send_evaluated_file` takes the evaluator's `file_id`, not an upload; S3 / SFTP jobs need `return_url` (and `validateSFTPfile` needs `file_name`); Warmup `check-domain-dmarc` needs an email address, not a domain. Check a new endpoint against the live API (`tests/zero_bounce_integration_test.py` style, sandbox addresses where possible) before release.
+- **The live API wins over the docs.** Where they disagree, follow what the API accepts and say so in the docstring. Known cases: `validate_batch` `timeout` must be a JSON string; `send_evaluated_file` takes the evaluator's `file_id`, not an upload; S3 / SFTP jobs need `return_url` (and `validateSFTPfile` needs `file_name`); Warmup `check-domain-dmarc` needs an email address, not a domain. Add every new method to `tests/live_api_test.py` (free calls by default, behind `ZEROBOUNCE_LIVE_SPEND` / `ZEROBOUNCE_LIVE_CHANGES` when it spends credits or changes the account, never anything the API cannot undo) and run it before a release.
 
 ## Changelog
 
@@ -65,7 +66,13 @@ CI (`.github/workflows/sdk_ci.yml`) runs `ruff check`, `compileall`, then `pytho
 
 Publishing and pushing tags need a maintainer's explicit approval. Do not bump the version, tag, or publish unless they asked.
 
+**Every release needs a manual live API test run first.** The offline suites cannot catch what only the live API rejects (a `timeout` type, a required field the docs call optional). The run needs real keys, which only a maintainer has, so it is a manual step:
+
+- Tell the maintainer as early as possible, at the start of any release work and as soon as a change adds or alters an API call, that a live run is required, which keys it needs (`ZEROBOUNCE_API_KEY`, plus `ZEROBOUNCE_WARMUP_API_KEY` when Warmup changed), and which flags (`ZEROBOUNCE_LIVE_SPEND=1` when bulk or credit-spending methods changed, `ZEROBOUNCE_LIVE_CHANGES=1` when filters or Warmup sending accounts changed). Do not leave it for the moment before tagging.
+- Do not tag or publish until the run has passed with every flag the change calls for. Record the result (date, flags, pass or failures) in the release pull request or the release notes.
+- Never write a key into a file, a commit, a log, or a message. Pass keys only as environment variables for the run.
+
 1. Move `[Unreleased]` entries under `## [x.y.z] - YYYY-MM-DD`, leave an empty `[Unreleased]` section, and update the compare links at the bottom of `CHANGELOG.md`.
 2. Set the same version in `pyproject.toml` (`version = "x.y.z"`). The publish workflow fails if it differs from the tag. That is the only version field. There is no runtime `__version__` and no user-agent constant. `setup.py` does not contain a version.
-3. `ruff check src tests`, `python -m compileall -q src tests`, and `python -m pytest`.
+3. `ruff check src tests`, `python -m compileall -q src tests`, and `python -m pytest`; then the manual live run (see above): `python -m unittest tests.live_api_test -v` with the keys and flags the release needs. A failure blocks the release.
 4. Tag `vx.y.z` on that commit and run the Publish workflow (`.github/workflows/publish.yml`) with that tag. It publishes `zerobouncesdk` to PyPI through PyPI Trusted Publishing: the PyPI project trusts this repository, `publish.yml`, environment `release`. There is no PyPI token, and none should be added. Keep the workflow file name and environment name, or update the trusted publisher on PyPI first.
