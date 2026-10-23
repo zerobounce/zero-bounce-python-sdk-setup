@@ -119,6 +119,9 @@ def _message_from_body(body: str, status_code: int) -> str:
                     loc = value[0].get("loc")
                     field = ".".join(str(part) for part in loc[1:]) if isinstance(loc, list) and len(loc) > 1 else ""
                     return f"{field}: {value[0]['msg']}" if field else str(value[0]["msg"])
+        # e.g. ["In-progress tests cannot be deleted."] from the Inbox Placement Tester
+        if isinstance(parsed, list) and parsed and isinstance(parsed[0], str) and parsed[0].strip():
+            return _strip_error_prefix(parsed[0])
         if len(trimmed) > 500:
             return "ZeroBounce returned an error (HTTP %s)." % status_code
         return trimmed
@@ -314,10 +317,10 @@ class ZeroBounce:
         content_type = headers.get("Content-Type") or headers.get("content-type") or ""
         if 300 <= status < 400:
             raise ZBApiException(
-                self._redact("ZeroBounce returned a redirect, which this client does not follow.")
+                self._redact("ZeroBounce returned a redirect, which this client does not follow."), status_code=status
             )
         if status > 299 or _looks_like_html(body, content_type) or not body.strip():
-            raise ZBApiException(self._redact(_message_from_body(body, status)))
+            raise ZBApiException(self._redact(_message_from_body(body, status)), status_code=status)
         try:
             payload = response.json()
         except ValueError:
@@ -351,16 +354,16 @@ class ZeroBounce:
         status = response.status_code
         if 300 <= status < 400:
             raise ZBApiException(
-                self._redact("ZeroBounce returned a redirect, which this client does not follow.")
+                self._redact("ZeroBounce returned a redirect, which this client does not follow."), status_code=status
             )
         if not (body_str or "").strip():
-            raise ZBApiException(self._redact(_message_from_body(body_str, status)))
+            raise ZBApiException(self._redact(_message_from_body(body_str, status)), status_code=status)
         if (
             status > 299
             or _looks_like_html(body_str, content_type)
             or self._should_treat_get_file_body_as_error(body_str, content_type)
         ):
-            raise ZBApiException(self._redact(_message_from_body(body_str, status)))
+            raise ZBApiException(self._redact(_message_from_body(body_str, status)), status_code=status)
 
     def _get(self, url, response_class, params=None):
         self._checked_url(url)
@@ -838,7 +841,9 @@ class ZeroBounce:
             ],
         }
         if timeout is not None:
-            payload["timeout"] = timeout
+            # The live API rejects a JSON number here (it answers with the account-level "Invalid API Key
+            # or your account ran out of credits" error) and accepts the value as a string.
+            payload["timeout"] = str(timeout)
         if activity_data is not None:
             payload["activity_data"] = activity_data
         if verify_plus is not None:
@@ -1472,16 +1477,16 @@ class ZeroBounce:
             )
         )
 
-    def send_evaluated_file(self, file_path: str) -> ZBSendFileResponse:
-        data = {"api_key": self._api_key}
-        with open(file_path, "rb") as file:
-            files = {"file": (os.path.basename(file_path), file, "text/csv")}
-            return self._post(
-                f"{self.BULK_BASE_URL}/send-evaluated-file/",
-                ZBSendFileResponse,
-                data=data,
-                files=files,
-            )
+    def send_evaluated_file(self, file_id: str) -> ZBSendFileResponse:
+        """Submit a list the list evaluator has finished for bulk validation (POST /send-evaluated-file/).
+
+        ``file_id`` is the list evaluator's ``file_id``. The live API takes that ID, not a new upload
+        (the docs describe a file upload, which the API rejects with "file_id: This field is required").
+        The result's ``file_id`` is the new validation job, followed with ``file_status`` and ``get_file``.
+        """
+        if not file_id or not file_id.strip():
+            raise ZBClientException("Empty parameter: file_id")
+        return self._post_form(f"{self.BULK_BASE_URL}/send-evaluated-file/", ZBSendFileResponse, {"file_id": file_id})
 
     # Priority 3 — custom filters (main API)
 
@@ -1615,11 +1620,17 @@ class ZeroBounce:
         *,
         file_name_required: bool = True,
     ) -> ZBSendFileResponse:
-        """POST one of the documented S3 / SFTP file jobs on the bulkapi root."""
+        """POST one of the documented S3 / SFTP file jobs on the bulkapi root.
+
+        The live API rejects a job without ``return_url`` ("Provided return URL is not permitted: None") and a
+        ``validateSFTPfile`` without ``file_name``, although the docs mark both optional; so both are required here.
+        """
         if (file_name is None and file_name_required) or (file_name is not None and not file_name.strip()):
             raise ZBClientException("Empty parameter: file_name")
         if has_header_row is None:
             raise ZBClientException("Empty parameter: has_header_row")
+        if not return_url or not str(return_url).strip():
+            raise ZBClientException("Empty parameter: return_url (the API rejects these jobs without one)")
         fields = {"has_header_row": has_header_row}
         if file_name is not None:
             fields["file_name"] = file_name
@@ -1660,22 +1671,14 @@ class ZeroBounce:
 
     def validate_sftpfile(
         self,
-        file_name: Optional[str],
+        file_name: str,
         has_header_row: bool,
         remove_duplicates: Optional[bool] = None,
         return_url: Optional[str] = None,
     ) -> ZBSendFileResponse:
-        """Validate a file from your SFTP/FTP server (POST /validateSFTPfile).
-
-        The docs list ``file_name`` as optional for this endpoint; pass ``None`` to leave it out.
-        """
+        """Validate a file from your SFTP/FTP server (POST /validateSFTPfile). ``file_name`` is e.g. ``my_file.txt``."""
         return self._bulk_root_file_job(
-            "/validateSFTPfile",
-            file_name,
-            has_header_row,
-            remove_duplicates,
-            return_url,
-            file_name_required=False,
+            "/validateSFTPfile", file_name, has_header_row, remove_duplicates, return_url
         )
 
     def score_sftpfile(

@@ -448,7 +448,7 @@ except ZBException as e:
 ```python
 sent = zero_bounce.send_list_evaluator_file("./list.csv", email_address_column=1)  # at least 100 emails
 result = zero_bounce.get_list_evaluator_result(sent.file_id)  # .status (processing/finished), .progress, .invalid_percentage, ...
-zero_bounce.send_evaluated_file("./list.csv")  # submit the evaluated list for validation
+job = zero_bounce.send_evaluated_file(sent.file_id)  # validate the evaluated list; job.file_id -> file_status / get_file
 ```
 
 ##### Allowlist and blocklist filters
@@ -474,7 +474,7 @@ try:
 
     zero_bounce.validate_s3file(name, True, return_url="https://example.com/done")
     # Also: score_s3file, email_finder_s3file, domain_search_s3file (file_name, has_header_row, ...)
-    zero_bounce.score_sftpfile("my_file.txt", True)       # file name on your SFTP/FTP server
+    zero_bounce.score_sftpfile("my_file.txt", True, return_url="https://example.com/done")  # file on your SFTP/FTP server
     # Also: validate_sftpfile, email_finder_sftpfile, domain_search_sftpfile
 
     # When the file is processed, export it back with its file ID (from return_url's callback,
@@ -485,7 +485,7 @@ except ZBException as e:
     print("ZeroBounce S3/SFTP error: " + str(e))
 ```
 
-`has_header_row` is required; `remove_duplicates` (default `True` on the API) and `return_url` are optional. The documented success response is `success` and `message`, without a file ID.
+`file_name`, `has_header_row` and `return_url` are required: the live API rejects a job without a return URL, and `validate_sftpfile` without a file name, although the docs mark them optional. `remove_duplicates` (default `True` on the API) is optional. The documented success response is `success` and `message`, without a file ID.
 
 ##### Inbox Placement Tester
 
@@ -535,7 +535,7 @@ try:
         managed_sending={"weekdays_only": True, "timezone_offset": 3.0, "warmup_start_date": "2026-11-02"},
     )
     print(warmup.get_sending_account("sender@example.com"))
-    print(warmup.check_domain_dmarc("example.com", dkim_selector="default"))
+    print(warmup.check_domain_dmarc("sender@example.com", dkim_selector="default"))  # an email address, not a domain
     warmup.set_engagement_rule("sender@example.com", 1)        # returns None (HTTP 204)
     warmup.create_custom_engagement("sender@example.com", reply_pct=20, important_pct=25, click_pct=25)
     print(warmup.get_statistics_per_day("sender@example.com", "2026-10-01", "2026-10-14"))
@@ -553,6 +553,8 @@ except ZBException as e:
 Every documented endpoint has a method: sending accounts (`list_sending_accounts`, `get_sending_account`, `add_sending_account`, `update_sending_account`, `delete_sending_account`, `change_from_address`, `list_from_addresses`), engagement (`get_engagement_rules`, `set_engagement_rule`, `get_custom_engagement`, `create_custom_engagement`, `update_custom_engagement`, `delete_custom_engagement`), and statistics and utilities (`get_seeds`, `download_seeds`, `get_seed_count`, `get_progress_today`, `get_sent_today`, `get_emails_per_day`, `get_statistics`, `get_statistics_per_day`, `get_statistics_detailed`, `download_statistics`, `get_from_address_statistics`, `check_domain_dmarc`, `test_smtp_configuration`). Calls the API answers with 204 or an empty body return `None`; the two CSV downloads return the CSV text.
 
 ##### Other hosts
+
+`test_smtp_configuration` currently gets HTTP 500 from the API whenever the SMTP login fails, so a `ZBApiException` with `status_code` 500 there means "the credentials did not work".
 
 `base_url` sets the host of the single-request API (validate, scoring, email finder, filters). The bulk APIs have their own class attributes, which you can set on an instance. ZeroBounce documents no regional bulk host, so with an EU or US `base_url` the bulk calls still go to `bulkapi.zerobounce.net`; the client warns once (`UserWarning`) when that happens, unless you set the bulk URLs yourself.
 

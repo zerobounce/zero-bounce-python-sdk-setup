@@ -316,7 +316,7 @@ class ZeroBounceTestCase(BaseTestCase):
             verify_plus=True,
         )
         payload = self.requests_mock.post.call_args[1]["json"]
-        self.assertEqual(payload["timeout"], 60)
+        self.assertEqual(payload["timeout"], "60")  # a string: the live API rejects a JSON number
         self.assertTrue(payload["activity_data"])
         self.assertTrue(payload["verify_plus"])
 
@@ -800,7 +800,7 @@ class ZeroBounceTestCase(BaseTestCase):
     def test_validate_s3file_posts_to_bulk_root(self):
         self.requests_mock.post.return_value = MockResponse({"success": True, "file_id": "s3-1"})
         self.zero_bounce_client.validate_s3file(
-            "lists/jan.csv", has_header_row=True, remove_duplicates=True
+            "lists/jan.csv", has_header_row=True, remove_duplicates=True, return_url="https://example.com/cb"
         )
         url = self.requests_mock.post.call_args[0][0]
         self.assertEqual(url, "https://bulkapi.zerobounce.net/validateS3file")
