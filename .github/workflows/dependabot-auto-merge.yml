@@ -1,8 +1,18 @@
 name: Dependabot security auto-merge
 
-# Dependabot here opens security updates only (.github/dependabot.yml). Patch and minor updates are
-# approved and merged once checks pass. A major update gets a comment and is left for a person to
-# review and merge, because it can change behaviour even when the tests pass.
+# Dependabot opens security updates only here: .github/dependabot.yml turns version updates off
+# (open-pull-requests-limit: 0), and every group in it is a "-security" group that applies to
+# security-updates.
+#
+# A grouped security update that is a patch or minor change is approved, then merged by this
+# workflow once every other workflow run on the pull request's head commit has finished
+# successfully. The branches have no required checks, so `gh pr merge --auto` would merge at
+# once; this workflow does the waiting itself. Anything else (a major update, an update whose
+# type Dependabot did not report, or a pull request outside a security group) gets a comment and
+# is left for a person to review and merge.
+#
+# The Tuesday run merges pull requests that this workflow approved for their current head commit
+# and whose checks finished after the pull-request run stopped waiting.
 
 on:
   pull_request:
@@ -14,54 +24,156 @@ on:
 permissions:
   contents: write
   pull-requests: write
+  actions: read # list the workflow runs on a pull request's head commit
+
+env:
+  # jq filter over `gh api repos/{repo}/actions/runs?head_sha=...`. Prints "success: ...",
+  # "failure: ..." or "pending: ..." followed by the workflow runs that decided it. Runs of this
+  # workflow ($self) are left out. For each workflow and event only the newest run counts; a
+  # re-run updates its run in place.
+  CHECKS_FILTER: >-
+    [.workflow_runs[] | select(.workflow_id != $self)]
+    | group_by([.workflow_id, .event]) | map(max_by(.run_number))
+    | map(select(.status != "completed")) as $running
+    | map(select(.status == "completed"
+                 and (.conclusion | IN("success", "skipped", "neutral") | not))) as $failed
+    | if length == 0 then "pending: no other workflow has started on this commit yet"
+      elif ($failed | length) > 0 then "failure: " + ($failed | map("\(.name) (\(.conclusion))") | join(", "))
+      elif ($running | length) > 0 then "pending: " + ($running | map(.name) | join(", "))
+      else "success: " + (map(.name) | join(", ")) end
 
 jobs:
   approve-and-queue-merge:
+    name: Approve and merge a security update
     runs-on: ubuntu-latest
+    timeout-minutes: 75
     if: >-
       github.event_name == 'pull_request'
       && github.event.pull_request.user.login == 'dependabot[bot]'
+      && github.actor == 'dependabot[bot]'
+    concurrency:
+      group: dependabot-auto-merge-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      PR_URL: ${{ github.event.pull_request.html_url }}
+      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
     steps:
-      - name: Read the update type
+      - name: Read the update metadata
         id: metadata
         uses: dependabot/fetch-metadata@25dd0e34f4fe68f24cc83900b1fe3fe149efef98 # v3.1.0
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Approve and auto-merge a patch or minor update
-        if: steps.metadata.outputs.update-type != 'version-update:semver-major'
-        run: |
-          gh pr review --approve "$PR_URL"
-          gh pr merge --auto --merge "$PR_URL"
+      - name: Check it is a patch or minor security update
+        id: policy
         env:
-          PR_URL: ${{ github.event.pull_request.html_url }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Leave a major update for review
-        if: steps.metadata.outputs.update-type == 'version-update:semver-major'
-        run: >-
-          gh pr comment "$PR_URL" --body "Major version update: not auto-merged.
-          Review the changelog and merge by hand."
-        env:
-          PR_URL: ${{ github.event.pull_request.html_url }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-  weekly-merge-ready:
-    runs-on: ubuntu-latest
-    if: github.event_name == 'schedule'
-    steps:
-      - name: Re-queue Dependabot pull requests already cleared for auto-merge
-        # Only PRs the job above approved (patch or minor); majors are never approved by a workflow.
+          UPDATE_TYPE: ${{ steps.metadata.outputs.update-type }}
+          GROUP: ${{ steps.metadata.outputs.dependency-group }}
         run: |
           set -euo pipefail
-          mapfile -t urls < <(gh pr list --repo "$GITHUB_REPOSITORY" --author app/dependabot --state open \
-            --search "review:approved" --json url --jq '.[].url')
-          if [ "${#urls[@]}" -eq 0 ]; then
-            echo "No approved Dependabot pull requests to queue."
-            exit 0
+          echo "update-type: ${UPDATE_TYPE:-none}, group: ${GROUP:-none}"
+          reason=""
+          case "$UPDATE_TYPE" in
+            version-update:semver-patch | version-update:semver-minor) ;;
+            version-update:semver-major) reason="it is a major version update" ;;
+            *) reason="Dependabot did not report a patch or minor update type" ;;
+          esac
+          case "$GROUP" in
+            *-security) ;;
+            *) reason="it is not in a security-update group of .github/dependabot.yml" ;;
+          esac
+          if [ -n "$reason" ]; then
+            echo "eligible=false" >> "$GITHUB_OUTPUT"
+            echo "reason=$reason" >> "$GITHUB_OUTPUT"
+          else
+            echo "eligible=true" >> "$GITHUB_OUTPUT"
           fi
-          for url in "${urls[@]}"; do
-            gh pr merge --auto --merge "$url" || true
+
+      - name: Leave it for review
+        if: steps.policy.outputs.eligible == 'false'
+        env:
+          REASON: ${{ steps.policy.outputs.reason }}
+        run: >-
+          gh pr comment "$PR_URL" --body "Not auto-merged: $REASON.
+          Review the changelog and merge by hand."
+
+      # The approval records that this commit passed the check above; the Tuesday run relies on it.
+      - name: Approve
+        if: steps.policy.outputs.eligible == 'true'
+        run: gh pr review --approve "$PR_URL"
+
+      - name: Wait for the other workflows on this commit, then merge
+        if: steps.policy.outputs.eligible == 'true'
+        run: |
+          set -euo pipefail
+          self=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" --jq .workflow_id)
+          deadline=$(( $(date +%s) + 3600 ))
+          # Let the other workflows started by this push register their runs first.
+          sleep 60
+          while :; do
+            state=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$HEAD_SHA&per_page=100" \
+              | jq -r --argjson self "$self" "$CHECKS_FILTER")
+            echo "$(date -u +%H:%M:%S) $state"
+            case "$state" in
+              success:*) break ;;
+              failure:*)
+                echo "::error::Not merged: a check failed on $HEAD_SHA."
+                exit 1
+                ;;
+            esac
+            if [ "$(date +%s)" -ge "$deadline" ]; then
+              echo "::error::Checks still running after an hour. The Tuesday run merges this pull request once they pass."
+              exit 1
+            fi
+            sleep 30
           done
+          # Refuses to merge if a commit was pushed after the checks above ran.
+          gh pr merge --merge --match-head-commit "$HEAD_SHA" "$PR_URL"
+
+  weekly-merge-ready:
+    name: Merge approved security updates whose checks passed
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    if: github.event_name == 'schedule'
+    steps:
+      - name: Merge approved Dependabot pull requests whose checks passed
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          self=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" --jq .workflow_id)
+          prs=$(gh pr list --repo "$GITHUB_REPOSITORY" --author app/dependabot --state open \
+            --json number,headRefOid --jq '.[] | "\(.number) \(.headRefOid)"')
+          if [ -z "$prs" ]; then
+            echo "No open Dependabot pull requests."
+            exit 0
+          fi
+          mapfile -t rows <<< "$prs"
+          failed=0
+          for row in "${rows[@]}"; do
+            read -r number sha <<< "$row"
+            # Only pull requests the job above approved for their current head commit: it approves
+            # patch and minor security updates only, and a new commit needs a new approval.
+            approved=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$number/reviews?per_page=100" \
+              | jq --arg sha "$sha" '[.[] | select(.user.login == "github-actions[bot]"
+                  and .state == "APPROVED" and .commit_id == $sha)] | length')
+            if [ "$approved" -eq 0 ]; then
+              echo "#$number: not approved by this workflow for $sha; left for review."
+              continue
+            fi
+            state=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$sha&per_page=100" \
+              | jq -r --argjson self "$self" "$CHECKS_FILTER")
+            echo "#$number: $state"
+            case "$state" in
+              success:*)
+                if ! gh pr merge --repo "$GITHUB_REPOSITORY" --merge --match-head-commit "$sha" "$number"; then
+                  echo "::error::#$number: merge failed."
+                  failed=1
+                fi
+                ;;
+              failure:*) echo "::warning::#$number: a check failed; not merged." ;;
+              *) echo "#$number: checks still running; not merged." ;;
+            esac
+          done
+          exit "$failed"
