@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.4.0] - 2026-11-11
+
+### Breaking
+
+- Requires Python 3.10 or newer (`requires-python = ">=3.10"`; 2.3.0 allowed 3.7). The `requests` and `urllib3` releases that fix their current advisories need Python 3.10: `requests` 2.33.0 (CVE-2026-25645) and `urllib3` 2.7.0 and 2.8.0 (CVE-2026-44431, CVE-2026-44432, CVE-2026-97687, CVE-2026-97688, CVE-2026-97689). On 3.9 and older pip can only resolve `requests` 2.32.5 and `urllib3` 2.6.3 or older, which have those advisories. Python 3.7, 3.8 and 3.9 are also past end of life. On those versions pip keeps installing 2.3.0.
+
+### Changed
+
+- The dependency floors apply on every supported Python: `requests >= 2.33.0`, `urllib3 >= 2.8.0`, `idna >= 3.15`, `certifi >= 2026.10.19`, and `pytest >= 9.0.3` for the `test` extra. The floors for Python 3.9 and older are gone.
+- Classifiers name Python 3.10 to 3.14.
+
+### Fixed
+
+- Building from source declares `setuptools >= 77.0.3`. The `license = "MIT"` expression needs setuptools 77, and setuptools 61 to 76, which 2.3.0 allowed, reject it.
+
+### Security
+
+- The publish workflow uses `pypa/gh-action-pypi-publish` v1.14.3, pinned by commit, instead of v1.14.2. v1.14.2 and older bundle the emSign root CAs, whose intermediate CA keys were compromised, in the `certifi` trust store that Sigstore uses for Trusted Publishing and attestations (GHSA-5xjx-3w67-w9x9, critical).
+
 ## [2.3.0] - 2026-10-24
 
 ### Added
@@ -158,7 +177,8 @@ No changes to the package; CI action updates only.
 
 - Initial release: `get_credits`, `get_api_usage`, `get_activity`, `validate`, `validate_batch`, bulk and AI-scoring file methods, and `guess_format`.
 
-[Unreleased]: https://github.com/zerobounce/zero-bounce-python-sdk-setup/compare/v2.3.0...HEAD
+[Unreleased]: https://github.com/zerobounce/zero-bounce-python-sdk-setup/compare/v2.4.0...HEAD
+[2.4.0]: https://github.com/zerobounce/zero-bounce-python-sdk-setup/compare/v2.3.0...v2.4.0
 [2.3.0]: https://github.com/zerobounce/zero-bounce-python-sdk-setup/compare/v2.2.4...v2.3.0
 [2.2.4]: https://github.com/zerobounce/zero-bounce-python-sdk-setup/compare/v2.2.3...v2.2.4
 [2.2.3]: https://github.com/zerobounce/zero-bounce-python-sdk-setup/compare/v2.2.2...v2.2.3
