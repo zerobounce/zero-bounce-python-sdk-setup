@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- `validate_batch` with an account-level error (an `"email_address": "all"` entry, such as "Invalid API Key or your account ran out of credits") raises `ZBApiException` with `status_code` 200, like the other calls and the other SDKs. 3.0.0 raised it with `status_code` `None`.
+- `ZBValidateResponse.mx_found`, `free_email` and `catchall_domain` (also on `validate_batch` results) are `True`, `False` or `None`, as in the PHP SDK. A value that is not a boolean, such as `"unknown"`, is now `None`; 3.0.0 kept the string, which is truthy. `"1"`/`"0"` and `1`/`0` are now read as `True`/`False`.
+- `ZBGetActivityResponse.found` is parsed the same way: `"false"` from the API is `False` (3.0.0 kept the string `"false"`, which is truthy), and a value that is not a boolean is `None`.
+
 ## [3.0.0] - 2026-11-12
 
 ### Breaking
