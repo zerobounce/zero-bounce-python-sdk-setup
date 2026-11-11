@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Breaking
+
+- **Breaking:** boolean request options are parsed strictly. `True`/`False`, `"true"`/`"false"` (any case) and `1`/`0` are accepted; anything else raises `ZBClientException("Invalid parameter: <name> must be true or false")` before a request is sent. Up to 2.4.0 `validate(..., activity_data="false")` sent `true`, and the S3/SFTP jobs and file uploads passed any value through to the API unchecked. Affects `validate` (`activity_data`, `verify_plus`, `domain_info`, `greylist_processing`), `validate_batch`, `send_file`/`scoring_send_file` and their `_stream` variants (`has_header_row`, `remove_duplicate`, `allow_phase_2`), `ZBGetFileOptions.activity_data`, the email finder and domain search uploads (`has_header_row`), and every S3/SFTP job (`has_header_row`, `remove_duplicates`).
+
+### Fixed
+
+- A 2xx `{"error_message": "..."}` with no `success` field raises `ZBApiException`. 2.4.0 returned it as the result (`get_credits()` gave `credits=None`).
+- `find_email_format` and `find_domain` (GET and POST) raise for a body made only of message fields, including `{"detail": ...}` and `{"error_message": ...}`; 2.4.0 raised only for `Message`/`message` and returned the others as results.
+- The per-API `*_BASE_URL` attributes (`BULK_BASE_URL`, `BULK_ROOT_URL`, `SCORING_BASE_URL`, `EMAIL_FINDER_BASE_URL`, `DOMAIN_SEARCH_BASE_URL`, `LIST_EVALUATOR_BASE_URL`, `INBOX_PLACEMENT_BASE_URL`) lose trailing slashes where they are read, so `BULK_BASE_URL = "https://host/v2/"` no longer requests `/v2//filestatus`.
+
+### Changed
+
+- `ZBApiException.status_code` is the HTTP status (usually 200) for errors the API reports on a 2xx response: a dead key's `error`/`Error`/`error_message`, `"success": false`, a message-only finder body, a Cloudflare JSON page and a body that is not JSON. It was `None` for these.
+- `ZBValidateResponse` (and the `validate_batch` elements) gain `raw_status` and `raw_sub_status`, the API's text, so a value this version does not know (which still makes `status`/`sub_status` `None`) is not lost.
+- The license file is named `LICENSE` (it was `LICENSE.txt`); the wheel and sdist ship it under that name.
+
 ## [2.4.0] - 2026-11-11
 
 ### Breaking

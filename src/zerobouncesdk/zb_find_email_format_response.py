@@ -6,6 +6,9 @@ from ._zb_utils import safe_enum_convert
 class ZBFindEmailFormatResponse(ZBResponse):
     """This is the response for the find_email_format request."""
 
+    # A body made only of message keys is a rejected request, not a result.
+    _MESSAGE_ONLY_IS_ERROR = True
+
     email: str = None
     """The guessed email address."""
 

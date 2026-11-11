@@ -59,7 +59,7 @@ zero_bounce = ZeroBounce("<YOUR_API_KEY>", base_url="https://custom-api.example.
 
 The region applies to the single-request API. File-based APIs always use `bulkapi.zerobounce.net` (see [Other hosts](#other-hosts)).
 
-**Errors:** a method raises `ZBClientException` when it rejects an argument before sending anything, and `ZBApiException` when the API returns an error; both inherit from `ZBException`. `ZBApiException.status_code` holds the HTTP status when it is known (for example 429 from the Warmup API). An unknown status, sub-status or confidence value in a response becomes `None` with a `UserWarning` instead of an error.
+**Errors:** a method raises `ZBClientException` when it rejects an argument before sending anything, and `ZBApiException` when the API returns an error; both inherit from `ZBException`. `ZBApiException.status_code` holds the HTTP status when it is known (for example 429 from the Warmup API). An error the API reports on an HTTP 200 (a dead key's `error`, `Error` or `error_message`, `"success": false`) has `status_code` 200. An unknown status, sub-status or confidence value in a response becomes `None` with a `UserWarning` instead of an error; a validate response keeps the API's text in `raw_status` and `raw_sub_status`. Boolean options accept `True`/`False`, `"true"`/`"false"` and `1`/`0`; anything else raises `ZBClientException`. The greylist answer `{"Message": "Greylist validation still in progress..."}` is a result: its text is in `ZBValidateResponse.message`.
 
 ## Examples
 Then you can use any of the SDK methods, for example:
@@ -672,4 +672,4 @@ The workflow publishes with [PyPI Trusted Publishing](https://docs.pypi.org/trus
 
 ## License
 
-MIT. See [LICENSE.txt](LICENSE.txt).
+MIT. See [LICENSE](LICENSE).
