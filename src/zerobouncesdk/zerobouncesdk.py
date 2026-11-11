@@ -162,6 +162,42 @@ def _https_url(url: str) -> str:
     return url
 
 
+def _root(url) -> str:
+    """A base URL without trailing slashes, so ``f"{root}/path"`` never has ``//``.
+
+    The per-API ``*_BASE_URL`` attributes are documented as reassignable, so they are normalised where they are read.
+    """
+    return url.rstrip("/") if isinstance(url, str) else url
+
+
+def _strict_bool(value, name: str) -> bool:
+    """A boolean option, parsed strictly.
+
+    ``True``/``False``, ``"true"``/``"false"`` (any case) and ``1``/``0`` are accepted; anything else raises, so
+    ``"false"`` is never sent as true and a typo is not taken as a flag.
+    """
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int) and value in (0, 1):
+        return value == 1
+    if isinstance(value, str):
+        text = value.strip().lower()
+        if text in ("true", "1"):
+            return True
+        if text in ("false", "0"):
+            return False
+    raise ZBClientException(f"Invalid parameter: {name} must be true or false")
+
+
+def _wire_bool(value, name: str) -> str:
+    """A strict boolean option as the string the API expects in a query or form."""
+    return "true" if _strict_bool(value, name) else "false"
+
+
+# The keys a message-only body is made of.
+_MESSAGE_KEYS = ("error", "message", "error_message", "Message", "Error", "detail")
+
+
 def _form_data(data):
     """Encode booleans as the strings ``true`` and ``false`` for form and multipart bodies.
 
@@ -310,7 +346,7 @@ class ZeroBounce:
                 text = text.replace(secret, "***")
         return text
 
-    def _read_json_payload(self, response):
+    def _read_json_payload(self, response, message_only_is_error: bool = False):
         body = _response_text(response)
         status = getattr(response, "status_code", 0) or 0
         headers = getattr(response, "headers", None) or {}
@@ -324,20 +360,20 @@ class ZeroBounce:
         try:
             payload = response.json()
         except ValueError:
-            raise ZBApiException(self._redact(_message_from_body(body, status))) from None
+            raise ZBApiException(self._redact(_message_from_body(body, status)), status_code=status) from None
         if isinstance(payload, dict):
             title = payload.get("title")
             if isinstance(title, str) and payload.get("cloudflare_error") is True:
-                raise ZBApiException(self._redact(title))
+                raise ZBApiException(self._redact(title), status_code=status)
             error = None
             for key in ("error", "Error"):
                 if key in payload and payload[key]:
                     error = payload[key]
                     break
             if isinstance(error, str) and error.strip():
-                raise ZBApiException(self._redact(_strip_error_prefix(error)))
+                raise ZBApiException(self._redact(_strip_error_prefix(error)), status_code=status)
             if error:
-                raise ZBApiException(self._redact(str(error)))
+                raise ZBApiException(self._redact(str(error)), status_code=status)
             success = payload.get("success")
             failed = success is False or (
                 isinstance(success, str) and success.lower() == "false"
@@ -347,7 +383,21 @@ class ZeroBounce:
                 if isinstance(message, list):
                     message = message[0] if message else "Request failed"
                 text = str(message).strip() or "Request failed"
-                raise ZBApiException(self._redact(_strip_error_prefix(text)))
+                raise ZBApiException(self._redact(_strip_error_prefix(text)), status_code=status)
+            # A dead or invalid key on a 2xx: no "success" and a non-empty "error_message".
+            error_message = payload.get("error_message")
+            if "success" not in payload and isinstance(error_message, str) and error_message.strip():
+                raise ZBApiException(self._redact(_strip_error_prefix(error_message)), status_code=status)
+            # The email finder and domain search never answer with a bare message: a body made only of message
+            # keys is how they report a rejected request (LIVE: a dead key gets {"Message": "Invalid API key..."}).
+            # Not for validate, whose greylist answer {"Message": "..."} is a result.
+            if message_only_is_error and payload and "success" not in payload and all(
+                key in _MESSAGE_KEYS for key in payload
+            ):
+                for key in _MESSAGE_KEYS:
+                    value = payload.get(key)
+                    if isinstance(value, str) and value.strip():
+                        raise ZBApiException(self._redact(_strip_error_prefix(value)), status_code=status)
         return payload
 
     def _raise_if_download_error(self, response, body_str: str, content_type: str) -> None:
@@ -379,7 +429,9 @@ class ZeroBounce:
         if error is not None:
             # Raised outside the except block: the original, unredacted error must not be its __context__.
             raise error
-        return response_class(self._read_json_payload(response))
+        return response_class(
+            self._read_json_payload(response, getattr(response_class, "_MESSAGE_ONLY_IS_ERROR", False))
+        )
 
     def _post(self, url, response_class, data=None, json=None, files=None):
         self._checked_url(url)
@@ -399,7 +451,9 @@ class ZeroBounce:
         if error is not None:
             # Raised outside the except block: the original, unredacted error must not be its __context__.
             raise error
-        return response_class(self._read_json_payload(response))
+        return response_class(
+            self._read_json_payload(response, getattr(response_class, "_MESSAGE_ONLY_IS_ERROR", False))
+        )
 
     def _post_form(self, url, response_class, data=None):
         self._checked_url(url)
@@ -418,7 +472,9 @@ class ZeroBounce:
         if error is not None:
             # Raised outside the except block: the original, unredacted error must not be its __context__.
             raise error
-        return response_class(self._read_json_payload(response))
+        return response_class(
+            self._read_json_payload(response, getattr(response_class, "_MESSAGE_ONLY_IS_ERROR", False))
+        )
 
     def _request_json(
         self, method: str, url: str, *, params=None, data=None, files=None, json=None, bearer: bool = False
@@ -597,7 +653,7 @@ class ZeroBounce:
         data = dict(fields)
         data["api_key"] = self._api_key
         return self._post(
-            f"{self.BULK_ROOT_URL}{path}",
+            f"{_root(self.BULK_ROOT_URL)}{path}",
             ZBSendFileResponse,
             data=data,
         )
@@ -766,6 +822,14 @@ class ZeroBounce:
             Returns a ZBValidateResponse object if the request was successful
         """
         self._check_validate_timeout(timeout)
+        if activity_data is not None:
+            activity_data = _strict_bool(activity_data, "activity_data")
+        if verify_plus is not None:
+            verify_plus = _strict_bool(verify_plus, "verify_plus")
+        if domain_info is not None:
+            domain_info = _strict_bool(domain_info, "domain_info")
+        if greylist_processing is not None:
+            greylist_processing = _strict_bool(greylist_processing, "greylist_processing")
         if callback_url is not None and greylist_processing is not True:
             raise ZBClientException("Invalid parameter: callback_url requires greylist_processing=True")
         if callback_url is not None and not callback_url.strip():
@@ -845,9 +909,9 @@ class ZeroBounce:
             # or your account ran out of credits" error) and accepts the value as a string.
             payload["timeout"] = str(timeout)
         if activity_data is not None:
-            payload["activity_data"] = activity_data
+            payload["activity_data"] = _strict_bool(activity_data, "activity_data")
         if verify_plus is not None:
-            payload["verify_plus"] = verify_plus
+            payload["verify_plus"] = _strict_bool(verify_plus, "verify_plus")
         result = self._post(
             f"{self._base_url}/validatebatch",
             ZBValidateBatchResponse,
@@ -874,7 +938,7 @@ class ZeroBounce:
                 "email_address_column": email_address_column,
             }
         )
-        url = f"{self.SCORING_BASE_URL if scoring else self.BULK_BASE_URL}/sendfile"
+        url = f"{_root(self.SCORING_BASE_URL if scoring else self.BULK_BASE_URL)}/sendfile"
         with open(file_path, "rb") as file:
             files = {"file": (os.path.basename(file_path), file, "text/csv")}
             return self._post(url, ZBSendFileResponse, data=data, files=files)
@@ -894,7 +958,7 @@ class ZeroBounce:
                 "email_address_column": email_address_column,
             }
         )
-        url = f"{self.SCORING_BASE_URL if scoring else self.BULK_BASE_URL}/sendfile"
+        url = f"{_root(self.SCORING_BASE_URL if scoring else self.BULK_BASE_URL)}/sendfile"
         files = {"file": (file_name, file_stream, "text/csv")}
         return self._post(url, ZBSendFileResponse, data=data, files=files)
 
@@ -958,11 +1022,11 @@ class ZeroBounce:
         if ip_address_column is not None:
             data["ip_address_column"] = ip_address_column
         if has_header_row is not None:
-            data["has_header_row"] = has_header_row
+            data["has_header_row"] = _wire_bool(has_header_row, "has_header_row")
         if remove_duplicate is not None:
-            data["remove_duplicate"] = remove_duplicate
+            data["remove_duplicate"] = _wire_bool(remove_duplicate, "remove_duplicate")
         if allow_phase_2 is not None:
-            data["allow_phase_2"] = "true" if allow_phase_2 else "false"
+            data["allow_phase_2"] = _wire_bool(allow_phase_2, "allow_phase_2")
 
         return self._send_file(False, file_path, email_address_column, data)
 
@@ -1023,11 +1087,11 @@ class ZeroBounce:
         if ip_address_column is not None:
             data["ip_address_column"] = ip_address_column
         if has_header_row is not None:
-            data["has_header_row"] = has_header_row
+            data["has_header_row"] = _wire_bool(has_header_row, "has_header_row")
         if remove_duplicate is not None:
-            data["remove_duplicate"] = remove_duplicate
+            data["remove_duplicate"] = _wire_bool(remove_duplicate, "remove_duplicate")
         if allow_phase_2 is not None:
-            data["allow_phase_2"] = "true" if allow_phase_2 else "false"
+            data["allow_phase_2"] = _wire_bool(allow_phase_2, "allow_phase_2")
 
         return self._send_file_from_stream(
             False, file_stream, file_name, email_address_column, data
@@ -1070,9 +1134,9 @@ class ZeroBounce:
         if return_url is not None:
             data["return_url"] = return_url
         if has_header_row is not None:
-            data["has_header_row"] = has_header_row
+            data["has_header_row"] = _wire_bool(has_header_row, "has_header_row")
         if remove_duplicate is not None:
-            data["remove_duplicate"] = remove_duplicate
+            data["remove_duplicate"] = _wire_bool(remove_duplicate, "remove_duplicate")
 
         return self._send_file(True, file_path, email_address_column, data)
 
@@ -1110,9 +1174,9 @@ class ZeroBounce:
         if return_url is not None:
             data["return_url"] = return_url
         if has_header_row is not None:
-            data["has_header_row"] = has_header_row
+            data["has_header_row"] = _wire_bool(has_header_row, "has_header_row")
         if remove_duplicate is not None:
-            data["remove_duplicate"] = remove_duplicate
+            data["remove_duplicate"] = _wire_bool(remove_duplicate, "remove_duplicate")
 
         return self._send_file_from_stream(
             True, file_stream, file_name, email_address_column, data
@@ -1122,7 +1186,7 @@ class ZeroBounce:
         if not file_id.strip():
             raise ZBClientException("Empty parameter: file_id")
         return self._get(
-            f"{self.SCORING_BASE_URL if scoring else self.BULK_BASE_URL}/filestatus",
+            f"{_root(self.SCORING_BASE_URL if scoring else self.BULK_BASE_URL)}/filestatus",
             ZBFileStatusResponse,
             params={"file_id": file_id},
         )
@@ -1185,9 +1249,9 @@ class ZeroBounce:
             if options.download_type:
                 params["download_type"] = options.download_type
             if not scoring and options.activity_data is not None:
-                params["activity_data"] = "true" if options.activity_data else "false"
+                params["activity_data"] = _wire_bool(options.activity_data, "activity_data")
 
-        url = f"{self.SCORING_BASE_URL if scoring else self.BULK_BASE_URL}/getfile"
+        url = f"{_root(self.SCORING_BASE_URL if scoring else self.BULK_BASE_URL)}/getfile"
         return self._download(url, params, download_path, stream)
 
     def get_file(
@@ -1264,7 +1328,7 @@ class ZeroBounce:
         if not file_id.strip():
             raise ZBClientException("Empty parameter: file_id")
         return self._get(
-            f"{self.SCORING_BASE_URL if scoring else self.BULK_BASE_URL}/deletefile",
+            f"{_root(self.SCORING_BASE_URL if scoring else self.BULK_BASE_URL)}/deletefile",
             ZBDeleteFileResponse,
             params={"file_id": file_id},
         )
@@ -1329,7 +1393,9 @@ class ZeroBounce:
             raise ZBClientException("Empty parameter: domain_column")
         if first_name_column is None and full_name_column is None:
             raise ZBClientException("Empty parameter: first_name_column or full_name_column is required")
-        fields = {"domain_column": domain_column, "has_header_row": has_header_row}
+        fields = {"domain_column": domain_column}
+        if has_header_row is not None:
+            fields["has_header_row"] = _wire_bool(has_header_row, "has_header_row")
         if first_name_column is not None:
             fields["first_name_column"] = first_name_column
         if last_name_column is not None:
@@ -1339,7 +1405,7 @@ class ZeroBounce:
         if full_name_column is not None:
             fields["full_name_column"] = full_name_column
         return self._send_bulk_root_multipart(
-            f"{self.EMAIL_FINDER_BASE_URL}/sendfile", file_path, fields
+            f"{_root(self.EMAIL_FINDER_BASE_URL)}/sendfile", file_path, fields
         )
 
     def send_email_finder_file_stream(
@@ -1357,7 +1423,9 @@ class ZeroBounce:
             raise ZBClientException("Empty parameter: domain_column")
         if first_name_column is None and full_name_column is None:
             raise ZBClientException("Empty parameter: first_name_column or full_name_column is required")
-        fields = {"domain_column": domain_column, "has_header_row": has_header_row}
+        fields = {"domain_column": domain_column}
+        if has_header_row is not None:
+            fields["has_header_row"] = _wire_bool(has_header_row, "has_header_row")
         if first_name_column is not None:
             fields["first_name_column"] = first_name_column
         if last_name_column is not None:
@@ -1367,23 +1435,30 @@ class ZeroBounce:
         if full_name_column is not None:
             fields["full_name_column"] = full_name_column
         return self._send_bulk_root_multipart_stream(
-            f"{self.EMAIL_FINDER_BASE_URL}/sendfile",
+            f"{_root(self.EMAIL_FINDER_BASE_URL)}/sendfile",
             file_stream,
             file_name,
             fields,
         )
 
     def email_finder_file_status(self, file_id: str) -> ZBFileStatusResponse:
-        return self._bulk_root_file_status(self.EMAIL_FINDER_BASE_URL, file_id)
+        return self._bulk_root_file_status(_root(self.EMAIL_FINDER_BASE_URL), file_id)
 
     def email_finder_get_file(self, file_id: str, download_path: str, stream: bool = False) -> ZBGetFileResponse:
         """Save the results at ``download_path``; ``stream=True`` writes them in chunks instead of in memory."""
-        return self._bulk_root_get_file(self.EMAIL_FINDER_BASE_URL, file_id, download_path, stream)
+        return self._bulk_root_get_file(_root(self.EMAIL_FINDER_BASE_URL), file_id, download_path, stream)
 
     def email_finder_delete_file(self, file_id: str) -> ZBDeleteFileResponse:
-        return self._bulk_root_delete_file(self.EMAIL_FINDER_BASE_URL, file_id)
+        return self._bulk_root_delete_file(_root(self.EMAIL_FINDER_BASE_URL), file_id)
 
     # Priority 3 — bulk domain search (bulkapi …/domain-search/*)
+
+    @staticmethod
+    def _domain_search_fields(domain_column: int, has_header_row) -> dict:
+        fields = {"domain_column": domain_column}
+        if has_header_row is not None:
+            fields["has_header_row"] = _wire_bool(has_header_row, "has_header_row")
+        return fields
 
     def send_domain_search_file(
         self,
@@ -1394,9 +1469,9 @@ class ZeroBounce:
         if domain_column is None:
             raise ZBClientException("Empty parameter: domain_column")
         return self._send_bulk_root_multipart(
-            f"{self.DOMAIN_SEARCH_BASE_URL}/sendfile",
+            f"{_root(self.DOMAIN_SEARCH_BASE_URL)}/sendfile",
             file_path,
-            {"domain_column": domain_column, "has_header_row": has_header_row},
+            self._domain_search_fields(domain_column, has_header_row),
         )
 
     def send_domain_search_file_stream(
@@ -1409,21 +1484,21 @@ class ZeroBounce:
         if domain_column is None:
             raise ZBClientException("Empty parameter: domain_column")
         return self._send_bulk_root_multipart_stream(
-            f"{self.DOMAIN_SEARCH_BASE_URL}/sendfile",
+            f"{_root(self.DOMAIN_SEARCH_BASE_URL)}/sendfile",
             file_stream,
             file_name,
-            {"domain_column": domain_column, "has_header_row": has_header_row},
+            self._domain_search_fields(domain_column, has_header_row),
         )
 
     def domain_search_file_status(self, file_id: str) -> ZBFileStatusResponse:
-        return self._bulk_root_file_status(self.DOMAIN_SEARCH_BASE_URL, file_id)
+        return self._bulk_root_file_status(_root(self.DOMAIN_SEARCH_BASE_URL), file_id)
 
     def domain_search_get_file(self, file_id: str, download_path: str, stream: bool = False) -> ZBGetFileResponse:
         """Save the results at ``download_path``; ``stream=True`` writes them in chunks instead of in memory."""
-        return self._bulk_root_get_file(self.DOMAIN_SEARCH_BASE_URL, file_id, download_path, stream)
+        return self._bulk_root_get_file(_root(self.DOMAIN_SEARCH_BASE_URL), file_id, download_path, stream)
 
     def domain_search_delete_file(self, file_id: str) -> ZBDeleteFileResponse:
-        return self._bulk_root_delete_file(self.DOMAIN_SEARCH_BASE_URL, file_id)
+        return self._bulk_root_delete_file(_root(self.DOMAIN_SEARCH_BASE_URL), file_id)
 
     # Priority 3 — list evaluator
 
@@ -1439,7 +1514,7 @@ class ZeroBounce:
         with open(file_path, "rb") as file:
             files = {"file": (os.path.basename(file_path), file, "text/csv")}
             return self._post(
-                f"{self.LIST_EVALUATOR_BASE_URL}/",
+                f"{_root(self.LIST_EVALUATOR_BASE_URL)}/",
                 ZBListEvaluatorResponse,
                 data=data,
                 files=files,
@@ -1459,7 +1534,7 @@ class ZeroBounce:
         }
         files = {"file": (file_name, file_stream, "text/csv")}
         return self._post(
-            f"{self.LIST_EVALUATOR_BASE_URL}/",
+            f"{_root(self.LIST_EVALUATOR_BASE_URL)}/",
             ZBListEvaluatorResponse,
             data=data,
             files=files,
@@ -1472,7 +1547,7 @@ class ZeroBounce:
         return ZBListEvaluatorResponse(
             self._request_json(
                 "GET",
-                f"{self.LIST_EVALUATOR_BASE_URL}/{_path_segment(file_id, 'file_id')}/",
+                f"{_root(self.LIST_EVALUATOR_BASE_URL)}/{_path_segment(file_id, 'file_id')}/",
                 params={"api_key": self._api_key},
             )
         )
@@ -1486,7 +1561,7 @@ class ZeroBounce:
         """
         if not file_id or not file_id.strip():
             raise ZBClientException("Empty parameter: file_id")
-        return self._post_form(f"{self.BULK_BASE_URL}/send-evaluated-file/", ZBSendFileResponse, {"file_id": file_id})
+        return self._post_form(f"{_root(self.BULK_BASE_URL)}/send-evaluated-file/", ZBSendFileResponse, {"file_id": file_id})
 
     # Priority 3 — custom filters (main API)
 
@@ -1557,7 +1632,7 @@ class ZeroBounce:
             params["search"] = search
         payload = self._request_json(
             "GET",
-            f"{self.BULK_ROOT_URL}/listS3files",
+            f"{_root(self.BULK_ROOT_URL)}/listS3files",
             params=params,
         )
         if isinstance(payload, dict) and payload.get("error"):
@@ -1631,11 +1706,11 @@ class ZeroBounce:
             raise ZBClientException("Empty parameter: has_header_row")
         if not return_url or not str(return_url).strip():
             raise ZBClientException("Empty parameter: return_url (the API rejects these jobs without one)")
-        fields = {"has_header_row": has_header_row}
+        fields = {"has_header_row": _wire_bool(has_header_row, "has_header_row")}
         if file_name is not None:
             fields["file_name"] = file_name
         if remove_duplicates is not None:
-            fields["remove_duplicates"] = remove_duplicates
+            fields["remove_duplicates"] = _wire_bool(remove_duplicates, "remove_duplicates")
         if return_url is not None:
             fields["return_url"] = return_url
         return self._post_bulk_root_form(path, fields)
@@ -1746,11 +1821,11 @@ class ZeroBounce:
         dict with ``emailProviders`` and ``gatewayProviders``; each has ``items`` of
         ``{id, name, location, seedCount, seedIds}``.
         """
-        return self._request_json("GET", f"{self.INBOX_PLACEMENT_BASE_URL}/providers", bearer=True)
+        return self._request_json("GET", f"{_root(self.INBOX_PLACEMENT_BASE_URL)}/providers", bearer=True)
 
     def get_inbox_placement_test_types(self):
         """Supported test types and the default one (GET /api/ipt/test-types)."""
-        return self._request_json("GET", f"{self.INBOX_PLACEMENT_BASE_URL}/test-types", bearer=True)
+        return self._request_json("GET", f"{_root(self.INBOX_PLACEMENT_BASE_URL)}/test-types", bearer=True)
 
     def create_inbox_placement_test(
         self,
@@ -1819,7 +1894,7 @@ class ZeroBounce:
             body["providers"] = list(providers)
         if webhook_url is not None:
             body["webhookUrl"] = webhook_url
-        return self._request_json("POST", f"{self.INBOX_PLACEMENT_BASE_URL}/test", json=body, bearer=True)
+        return self._request_json("POST", f"{_root(self.INBOX_PLACEMENT_BASE_URL)}/test", json=body, bearer=True)
 
     def get_inbox_placement_test(self, test_id: Union[int, str]):
         """A test and its placement results (GET /api/ipt/test/{id}).
@@ -1830,7 +1905,7 @@ class ZeroBounce:
         counts, ``percentages``, ``results`` and ``seeds``.
         """
         path = self._ipt_test_path(test_id)
-        return self._request_json("GET", f"{self.INBOX_PLACEMENT_BASE_URL}/test/{path}", bearer=True)
+        return self._request_json("GET", f"{_root(self.INBOX_PLACEMENT_BASE_URL)}/test/{path}", bearer=True)
 
     def list_inbox_placement_tests(
         self,
@@ -1870,16 +1945,16 @@ class ZeroBounce:
             params["page"] = page
         if page_size is not None:
             params["page_size"] = page_size
-        return self._request_json("GET", f"{self.INBOX_PLACEMENT_BASE_URL}/tests", params=params, bearer=True)
+        return self._request_json("GET", f"{_root(self.INBOX_PLACEMENT_BASE_URL)}/tests", params=params, bearer=True)
 
     def delete_inbox_placement_test(self, test_id: Union[int, str]):
         """Delete a finished test (DELETE /api/ipt/test/{id}). A running test cannot be deleted."""
         path = self._ipt_test_path(test_id)
-        return self._request_json("DELETE", f"{self.INBOX_PLACEMENT_BASE_URL}/test/{path}", bearer=True)
+        return self._request_json("DELETE", f"{_root(self.INBOX_PLACEMENT_BASE_URL)}/test/{path}", bearer=True)
 
     def get_inbox_placement_webhook(self):
         """The webhook URL saved on this API key (GET /api/ipt/webhook); empty when none is set."""
-        return self._request_json("GET", f"{self.INBOX_PLACEMENT_BASE_URL}/webhook", bearer=True)
+        return self._request_json("GET", f"{_root(self.INBOX_PLACEMENT_BASE_URL)}/webhook", bearer=True)
 
     def set_inbox_placement_webhook(self, webhook_url: str):
         """Save the URL finished test results are posted to (PUT /api/ipt/webhook). One per API key."""
@@ -1887,7 +1962,7 @@ class ZeroBounce:
             raise ZBClientException("Empty parameter: webhook_url")
         return self._request_json(
             "PUT",
-            f"{self.INBOX_PLACEMENT_BASE_URL}/webhook",
+            f"{_root(self.INBOX_PLACEMENT_BASE_URL)}/webhook",
             json={"webhookUrl": webhook_url},
             bearer=True,
         )

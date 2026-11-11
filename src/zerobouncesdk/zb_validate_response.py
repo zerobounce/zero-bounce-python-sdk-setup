@@ -88,10 +88,20 @@ class ZBValidateResponse(ZBResponse):
     message: str = None
     """Set instead of a result while greylist processing is still running; call validate again later."""
 
+    raw_status: str = None
+    """``status`` exactly as the API sent it, kept when it is a value this SDK version does not know
+    (``status`` is then None)."""
+
+    raw_sub_status: str = None
+    """``sub_status`` exactly as the API sent it, kept when it is a value this SDK version does not know
+    (``sub_status`` is then None)."""
+
     def __init__(self, data):
         super().__init__(data)
         if self.message is None and isinstance(self.__dict__.get("Message"), str):
             self.message = self.__dict__["Message"]
+        self.raw_status = self.status
+        self.raw_sub_status = self.sub_status
         self.status = safe_enum_convert(ZBValidateStatus, self.status, "status")
         self.sub_status = safe_enum_convert(ZBValidateSubStatus, self.sub_status, "sub_status")
         for flag in ("free_email", "mx_found", "catchall_domain"):

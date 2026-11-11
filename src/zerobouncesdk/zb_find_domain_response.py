@@ -9,6 +9,9 @@ from .zb_guess_format_response import ZBDomainFormat
 class ZBFindDomainResponse(ZBResponse):
     """This is the response for the find_domain request."""
 
+    # A body made only of message keys is a rejected request, not a result.
+    _MESSAGE_ONLY_IS_ERROR = True
+
     domain: str = None
     """The domain that was used or found."""
 
