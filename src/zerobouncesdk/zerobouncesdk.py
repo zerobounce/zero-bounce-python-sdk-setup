@@ -922,7 +922,8 @@ class ZeroBounce:
                 text = batch_error.error or "Invalid API Key or your account ran out of credits"
                 if isinstance(text, str):
                     text = _strip_error_prefix(text)
-                raise ZBApiException(text)
+                # Reported on an HTTP 200, like a dead key on the other calls.
+                raise ZBApiException(text, status_code=200)
         return result
 
     def _send_file(

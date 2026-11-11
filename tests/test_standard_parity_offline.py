@@ -116,6 +116,45 @@ class TwoHundredErrorTest(ParityTestCase):
                 self.assertEqual(str(caught.exception), text, body)
                 self.assertEqual(caught.exception.status_code, 200, body)
 
+    def test_a_batch_account_error_carries_status_200(self):
+        self.serve('{"email_batch":[],"errors":[{"email_address":"all",'
+                   '"error":"Invalid API Key or your account ran out of credits"}]}')
+        with self.assertRaises(ZBApiException) as caught:
+            self.client.validate_batch([ZBValidateBatchElement("a@example.com")])
+        self.assertEqual(str(caught.exception), "Invalid API Key or your account ran out of credits")
+        self.assertEqual(caught.exception.status_code, 200)
+
+
+class ResponseFlagTest(ParityTestCase):
+    def test_validate_flags_are_booleans_or_none(self):
+        self.serve('{"address":"a@example.com","status":"valid","mx_found":"unknown",'
+                   '"free_email":"FALSE","catchall_domain":"1"}')
+        result = self.client.validate("a@example.com")
+        self.assertIsNone(result.mx_found)
+        self.assertIs(result.free_email, False)
+        self.assertIs(result.catchall_domain, True)
+
+    def test_parse_bool_accepts_only_booleans(self):
+        from zerobouncesdk._zb_utils import parse_bool
+
+        for value, expected in (
+            (True, True), (False, False), (1, True), (0, False),
+            ("true", True), (" FALSE ", False), ("1", True), ("0", False),
+            ("unknown", None), ("", None), (None, None), (2, None), ("yes", None),
+        ):
+            self.assertIs(parse_bool(value), expected, repr(value))
+
+    def test_activity_found_is_a_boolean(self):
+        for body, expected in (
+            ('{"found":"false","active_in_days":null}', False),
+            ('{"found":"true","active_in_days":"30"}', True),
+            ('{"found":false}', False),
+            ('{"found":true}', True),
+            ('{"found":"unknown"}', None),
+        ):
+            self.serve(body)
+            self.assertIs(self.client.get_activity("a@example.com").found, expected, body)
+
 
 class RawStatusTest(ParityTestCase):
     def test_unknown_status_values_stay_available(self):

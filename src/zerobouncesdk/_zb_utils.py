@@ -45,14 +45,23 @@ def safe_enum_convert(enum_class, value, field_name="field", lowercase=False):
 
 
 def parse_bool(value):
-    """The API documents some flags as JSON booleans and shows others as "true"/"false" strings."""
+    """A flag from the API as a bool, or None.
+
+    The API documents some flags as JSON booleans and shows others as "true"/"false" strings.
+    True/False, "true"/"false" in any case, and 1/0 (or "1"/"0") are booleans; anything else
+    (such as "unknown") is None, so it is never mistaken for true.
+    """
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int) and value in (0, 1):
+        return value == 1
     if isinstance(value, str):
         lowered = value.strip().lower()
-        if lowered == "true":
+        if lowered in ("true", "1"):
             return True
-        if lowered == "false":
+        if lowered in ("false", "0"):
             return False
-    return value
+    return None
 
 
 def parse_datetime(value, formats, field_name="field"):
