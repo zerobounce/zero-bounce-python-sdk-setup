@@ -213,6 +213,17 @@ class WarmupTest(TestCase):
         self.client.add_sending_account("s@example.com", "self_managed", engagement_rule_id=0, ignore_conflict=None)
         self.assertNotIn("ignore_conflict", self._only().json)
 
+    def test_timezone_offset_takes_fractions_within_minus_11_to_14(self):
+        for offset in (5.5, 3.0, -11, 14):
+            self.requests.clear()
+            self.client.add_sending_account("s@example.com", "zb_managed", managed_sending={"timezone_offset": offset})
+            self.assertEqual(self.requests[0].json["managed_sending"], {"timezone_offset": offset})
+        self.requests.clear()
+        for offset in (-11.5, 14.5, "5.5", True):
+            with self.assertRaisesRegex(ZBClientException, "timezone_offset", msg=repr(offset)):
+                self.client.add_sending_account("s@example.com", "zb_managed", managed_sending={"timezone_offset": offset})
+        self.assertEqual(self.requests, [])
+
     def test_invalid_arguments_send_nothing(self):
         attempts = [
             lambda: ZeroBounceWarmup("  "),
