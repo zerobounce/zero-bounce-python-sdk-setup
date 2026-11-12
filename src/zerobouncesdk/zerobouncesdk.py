@@ -43,9 +43,15 @@ def _strict_json(text: str):
     """``text`` parsed as RFC 8259 JSON, or ``ValueError``.
 
     ``json.loads`` (and ``requests``' ``Response.json``) accept ``NaN``, ``Infinity`` and ``-Infinity``, which are
-    not JSON; a body holding them is not an API response either.
+    not JSON; a body holding them is not an API response either. A body nested deeper than the parser's recursion
+    limit (``[[[[...``) is a ValueError too, not a RecursionError.
     """
-    return json.loads(text, parse_constant=_reject_constant)
+    try:
+        return json.loads(text, parse_constant=_reject_constant)
+    except RecursionError:
+        pass
+    # Raised outside the except block, so the RecursionError is not its __context__.
+    raise ValueError("JSON nested too deeply")
 
 
 def _looks_like_html(body: str, content_type: str = "") -> bool:
@@ -275,7 +281,11 @@ def _json_unescape(text: str) -> str:
 _DECODERS = (unquote, unquote_plus, lambda text: text.replace("+", " "), _json_unescape)
 
 
-def _decoded_views(text: str, layers: int = 3) -> set:
+# How many layers of encoding the decode check undoes: the SDK's own request encoding plus three echo layers.
+_DECODE_LAYERS = 4
+
+
+def _decoded_views(text: str, layers: int = _DECODE_LAYERS) -> set:
     """``text`` and every view of it after up to ``layers`` decodings (URL, ``+`` as space, JSON), in any order."""
     views = {text}
     frontier = {text}
@@ -290,8 +300,8 @@ def _decoded_views(text: str, layers: int = 3) -> set:
 def _redact_secrets(text, secrets) -> str:
     """``text`` with every form of every secret masked.
 
-    Then closed under encoding: if any decoded view of what is left (URL, ``+`` as space, JSON, up to three
-    layers in any order) still holds a secret, the whole text is replaced by a fixed message.
+    Then closed under encoding: if any decoded view of what is left (URL, ``+`` as space, JSON, up to four
+    layers in any order: the SDK's own request encoding plus three echo layers) still holds a secret, the whole text is replaced by a fixed message.
     """
     text = str(text)
     secrets = [secret for secret in secrets if secret]
@@ -319,6 +329,22 @@ def _wire_bool(value, name: str) -> str:
 # What a body that does not parse as JSON reads as, so the error is raised outside the except block.
 _NOT_JSON = object()
 
+_JSON_TYPE_NAMES = {dict: "an object", list: "an array", str: "a string", bool: "a boolean", type(None): "null"}
+
+
+def _json_type_name(value) -> str:
+    return _JSON_TYPE_NAMES.get(type(value), "a number")
+
+
+def _shape_message(payload, shape) -> str:
+    """The message for strict JSON that is not the shape the call returns (e.g. ``[]`` or ``0`` for an object)."""
+    shapes = shape if isinstance(shape, tuple) else (shape,)
+    expected = " or ".join(_JSON_TYPE_NAMES[expected] for expected in shapes)
+    return (
+        f"ZeroBounce returned JSON of an unexpected shape: expected {expected}, got {_json_type_name(payload)}."
+    )
+
+
 # The keys a message-only body is made of.
 _MESSAGE_KEYS = ("error", "message", "error_message", "Message", "Error", "detail")
 
@@ -345,6 +371,16 @@ def _response_text(response) -> str:
         return content.decode("utf-8", errors="replace")
     text = getattr(response, "text", "")
     return text if isinstance(text, str) else ""
+
+
+def _s3_files(payload):
+    """The file list of a listS3files answer: documented as ``{"success": true, "files": [...]}``, or a bare
+    array. A 2xx with an ``error`` field has already raised; any other object is the wrong shape (TypeError)."""
+    if isinstance(payload, dict):
+        payload = payload.get("files")
+    if not isinstance(payload, list):
+        raise TypeError("listS3files: expected an array of files")
+    return payload
 
 
 class ZeroBounce(_RefusesPickling):
@@ -467,7 +503,10 @@ class ZeroBounce(_RefusesPickling):
         """Mask the API key in text that can end up in exception messages or logs."""
         return _redact_secrets(text, (self._api_key,))
 
-    def _read_json_payload(self, response, message_only_is_error: bool = False):
+    def _read_json_payload(self, response, message_only_is_error: bool = False, shape=dict):
+        """The JSON payload of a 2xx answer, which must be of type ``shape`` (``dict``, ``list`` or a tuple of
+        them); anything else, like an error body or ``0`` / ``[]`` where an object is expected, raises
+        ZBApiException with the HTTP status."""
         body = _response_text(response)
         status = getattr(response, "status_code", 0) or 0
         headers = getattr(response, "headers", None) or {}
@@ -523,7 +562,26 @@ class ZeroBounce(_RefusesPickling):
                     value = payload.get(key)
                     if isinstance(value, str) and value.strip():
                         raise ZBApiException(self._redact(_strip_error_prefix(value)), status_code=status)
+        if shape is not None and not isinstance(payload, shape):
+            raise ZBApiException(_shape_message(payload, shape), status_code=status)
         return payload
+
+    def _typed(self, response, response_class, shape=dict):
+        """``response_class`` built from the JSON object (or ``shape``) of ``response``.
+
+        A field of the wrong shape (e.g. ``"email_batch": 5``) is an API error with the HTTP status, not the
+        TypeError or AttributeError the response class would raise.
+        """
+        payload = self._read_json_payload(response, getattr(response_class, "_MESSAGE_ONLY_IS_ERROR", False), shape)
+        try:
+            return response_class(payload)
+        except (TypeError, AttributeError, ValueError, KeyError):
+            pass
+        # Raised outside the except block, so the response class's error is not its __context__.
+        raise ZBApiException(
+            "ZeroBounce returned JSON of an unexpected shape for this call.",
+            status_code=getattr(response, "status_code", 0) or 0,
+        )
 
     def _raise_if_download_error(self, response, body_str: str, content_type: str) -> None:
         status = response.status_code
@@ -554,9 +612,7 @@ class ZeroBounce(_RefusesPickling):
         if error is not None:
             # Raised outside the except block: the original, unredacted error must not be its __context__.
             raise error
-        return response_class(
-            self._read_json_payload(response, getattr(response_class, "_MESSAGE_ONLY_IS_ERROR", False))
-        )
+        return self._typed(response, response_class)
 
     def _post(self, url, response_class, data=None, json=None, files=None):
         self._checked_url(url)
@@ -576,9 +632,7 @@ class ZeroBounce(_RefusesPickling):
         if error is not None:
             # Raised outside the except block: the original, unredacted error must not be its __context__.
             raise error
-        return response_class(
-            self._read_json_payload(response, getattr(response_class, "_MESSAGE_ONLY_IS_ERROR", False))
-        )
+        return self._typed(response, response_class)
 
     def _post_form(self, url, response_class, data=None):
         self._checked_url(url)
@@ -597,9 +651,7 @@ class ZeroBounce(_RefusesPickling):
         if error is not None:
             # Raised outside the except block: the original, unredacted error must not be its __context__.
             raise error
-        return response_class(
-            self._read_json_payload(response, getattr(response_class, "_MESSAGE_ONLY_IS_ERROR", False))
-        )
+        return self._typed(response, response_class)
 
     def _request_json(
         self,
@@ -612,10 +664,14 @@ class ZeroBounce(_RefusesPickling):
         json=None,
         bearer: bool = False,
         empty_is_success: bool = False,
+        shape=dict,
+        response_class=None,
     ):
         """``bearer`` sends the key as ``Authorization: Bearer`` instead of an ``api_key`` parameter.
 
         ``empty_is_success`` returns None for a 2xx with an empty body (204 No Content) instead of raising.
+        ``shape`` is the JSON type the call returns (see ``_read_json_payload``); ``response_class`` builds a
+        typed result from it instead.
         """
         self._checked_url(url)
         if params is None:
@@ -648,7 +704,9 @@ class ZeroBounce(_RefusesPickling):
         # Empty means zero bytes: a blank body is not JSON, and not the documented empty success either.
         if empty_is_success and 200 <= response.status_code < 300 and _response_text(response) == "":
             return None
-        return self._read_json_payload(response)
+        if response_class is not None:
+            return self._typed(response, response_class, shape)
+        return self._read_json_payload(response, shape=shape)
 
     def _send_bulk_root_multipart(
         self, url: str, file_path: str, fields: dict
@@ -775,6 +833,13 @@ class ZeroBounce(_RefusesPickling):
                     if len(head) >= self._DOWNLOAD_MAX_ERROR_BYTES:
                         break
                 self._raise_if_download_error(response, head.decode("utf-8", errors="replace"), content_type)
+                # A JSON object cut at the cap cannot be parsed to tell an error from a file; no result file starts
+                # with "{", so it is an error with its status, as the same body under the cap would be.
+                if len(head) >= self._DOWNLOAD_MAX_ERROR_BYTES and head.lstrip()[:1] == b"{":
+                    raise ZBApiException(
+                        "ZeroBounce returned a JSON body larger than the error limit instead of the file.",
+                        status_code=response.status_code,
+                    )
 
             self._save_atomically(download_path, dirname, itertools.chain([head], chunks))
         except RequestException as e:
@@ -1691,12 +1756,11 @@ class ZeroBounce(_RefusesPickling):
         """The evaluation's progress and, once ``status`` is ``finished``, its percentages."""
         if not file_id.strip():
             raise ZBClientException("Empty parameter: file_id")
-        return ZBListEvaluatorResponse(
-            self._request_json(
-                "GET",
-                f"{_root(self.LIST_EVALUATOR_BASE_URL)}/{_path_segment(file_id, 'file_id')}/",
-                params={"api_key": self._api_key},
-            )
+        return self._request_json(
+            "GET",
+            f"{_root(self.LIST_EVALUATOR_BASE_URL)}/{_path_segment(file_id, 'file_id')}/",
+            params={"api_key": self._api_key},
+            response_class=ZBListEvaluatorResponse,
         )
 
     def send_evaluated_file(self, file_id: str) -> ZBSendFileResponse:
@@ -1738,16 +1802,19 @@ class ZeroBounce(_RefusesPickling):
         )
 
     def list_filters(self, use_post: bool = False):
+        """The allowlist / blocklist rules, a JSON array (GET or POST /filters/list)."""
         if use_post:
             return self._request_json(
                 "POST",
                 f"{self._base_url}/filters/list",
                 data={"api_key": self._api_key},
+                shape=list,
             )
         return self._request_json(
             "GET",
             f"{self._base_url}/filters/list",
             params={"api_key": self._api_key},
+            shape=list,
         )
 
     def delete_filter(self, rule: str, target: str, value: str):
@@ -1777,19 +1844,13 @@ class ZeroBounce(_RefusesPickling):
             params["bucket"] = bucket
         if search is not None:
             params["search"] = search
-        payload = self._request_json(
+        return self._request_json(
             "GET",
             f"{_root(self.BULK_ROOT_URL)}/listS3files",
             params=params,
+            shape=(dict, list),
+            response_class=_s3_files,
         )
-        if isinstance(payload, dict) and payload.get("error"):
-            raise ZBApiException(self._redact(payload["error"]))
-        # Documented as {"success": true, "files": [{"Name", "Size", "LastModified"}]}.
-        if isinstance(payload, dict) and isinstance(payload.get("files"), list):
-            return payload["files"]
-        if not isinstance(payload, list):
-            raise ZBApiException("Unexpected listS3files response")
-        return payload
 
     def validate_s3file(
         self,

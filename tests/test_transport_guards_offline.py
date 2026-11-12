@@ -841,10 +841,145 @@ class StrictJsonCorpusTest(TestCase):
                     try:
                         _quiet(call)
                     except ZBApiException as error:
-                        # A body the client could not parse is the only API error a 2xx without an error field
-                        # gives; a result of the wrong shape is a different error.
-                        if error.status_code == 200:
-                            wrong.append((name, body, str(error)))
-                    except Exception:  # noqa: BLE001 - "0" is not a validate result, but it parsed
-                        pass
+                        # It parsed: the only API error left is JSON of the wrong shape for the call ("0" is
+                        # not a validate result), with status 200.
+                        if error.status_code != 200 or "unexpected shape" not in str(error):
+                            wrong.append((name, body, error.status_code, str(error)))
+                    except Exception as error:  # noqa: BLE001 - a raw language error is never the answer
+                        wrong.append((name, body, type(error).__name__))
         self.assertEqual(wrong, [])
+
+
+class WrongShapeSweepTest(TestCase):
+    """E7: strict JSON of the wrong shape for the call (``0``, ``"x"``, ``[]``, ``null``, an object where an array
+    is expected, a field of the wrong type) is an API error with status 200 on every typed call of
+    ``ZeroBounce``: never a default-filled result, a raw TypeError/AttributeError, or an error without a status.
+
+    The Warmup client returns the API's JSON as is (its calls answer objects, arrays or a bare number), so only
+    its JSON parsing is checked, by the corpus test.
+    """
+
+    SCALARS = (b"0", b'"x"', b"null", b"true", b"1.5")
+    ARRAY_CALLS = {"list_filters"}
+    # Calls whose documented answer may be an object or an array.
+    EITHER_CALLS = {"list_s3files"}
+    DOWNLOADS = StrictJsonCorpusTest.DOWNLOADS
+
+    def _calls(self):
+        out = str(Path(tempfile.mkdtemp()) / "out.csv")
+        calls = client_calls(ZeroBounce(KEY), out)
+        return [(name, call) for name, variants in calls.items() for call in variants if name not in self.DOWNLOADS]
+
+    def _wrong(self, bodies_for):
+        wrong = []
+        for name, call in self._calls():
+            for body in bodies_for(name):
+                with patch("requests.sessions.Session.send", _file_reply(200, body, "application/json")):
+                    try:
+                        result = _quiet(call)
+                    except ZBApiException as error:
+                        if error.status_code != 200:
+                            wrong.append((name, body, error.status_code))
+                    except Exception as error:  # noqa: BLE001 - a raw language error is a wrong answer
+                        wrong.append((name, body, type(error).__name__))
+                    else:
+                        wrong.append((name, body, "accepted", result))
+        return wrong
+
+    def test_the_sweep_names_real_calls(self):
+        names = {name for name, _ in self._calls()}
+        self.assertLessEqual(self.ARRAY_CALLS | self.EITHER_CALLS, names)
+        self.assertGreater(len(names), 45)
+
+    def test_a_scalar_or_null_is_an_error_on_every_call(self):
+        self.assertEqual(self._wrong(lambda name: self.SCALARS), [])
+
+    def test_an_array_where_an_object_is_expected_is_an_error(self):
+        def bodies(name):
+            if name in self.ARRAY_CALLS or name in self.EITHER_CALLS:
+                return ()
+            return (b"[]", b'[{"status":"valid"}]')
+
+        self.assertEqual(self._wrong(bodies), [])
+
+    def test_an_object_where_an_array_is_expected_is_an_error(self):
+        def bodies(name):
+            if name in self.ARRAY_CALLS:
+                return (b"{}", b'{"rule":"block"}')
+            if name in self.EITHER_CALLS:
+                return (b"{}", b'{"success":true}', b'{"success":true,"files":5}')
+            return ()
+
+        self.assertEqual(self._wrong(bodies), [])
+
+    def test_a_field_of_the_wrong_shape_is_an_error(self):
+        bodies = {
+            "validate_batch": (b'{"email_batch":5}', b'{"email_batch":["x"]}', b'{"errors":[1]}'),
+            "guess_format": (b'{"other_domain_formats":5}',),
+            "find_domain": (b'{"other_domain_formats":[3]}',),
+        }
+        self.assertEqual(self._wrong(lambda name: bodies.get(name, ())), [])
+
+    def test_the_documented_shapes_still_parse(self):
+        replies = {"list_filters": b"[]", "list_s3files": b'{"success":true,"files":[]}'}
+        for name, call in self._calls():
+            if name not in replies:
+                continue
+            with patch("requests.sessions.Session.send", _file_reply(200, replies[name], "application/json")):
+                self.assertEqual(_quiet(call), [], name)
+        with patch("requests.sessions.Session.send", _file_reply(200, b"[]", "application/json")):
+            self.assertEqual(ZeroBounce(KEY).list_s3files(), [])
+
+
+class JsonDepthTest(TestCase):
+    """E7: a body nested deeper than the parser's recursion limit is an API error with status 200 on every call,
+    downloads and Warmup included, not a RecursionError. (Python 3.14's parser has no such limit and parses the
+    two well-formed bodies; those may then be results where their shape fits the call.)"""
+
+    BODIES = (b"[" * 200000, b"[" * 100000 + b"]" * 100000, b'{"a":' * 100000 + b"1" + b"}" * 100000)
+
+    def test_every_call_rejects_a_deeply_nested_body(self):
+        out = str(Path(tempfile.mkdtemp()) / "out.csv")
+        warmup = ZeroBounceWarmup(KEY)
+        calls = [(name, call) for name, variants in client_calls(ZeroBounce(KEY), out).items() for call in variants]
+        calls += [(f"warmup.{name}", lambda c=call: c(warmup)) for name, call in warmup_calls(out).items()]
+        wrong = []
+        for body in self.BODIES:
+            with patch("requests.sessions.Session.send", _file_reply(200, body, "application/json")):
+                for name, call in calls:
+                    try:
+                        _quiet(call)
+                    except ZBApiException as error:
+                        if error.status_code != 200 or error.__context__ is not None:
+                            wrong.append((name, error.status_code, error.__context__))
+                    except Exception as error:  # noqa: BLE001 - a RecursionError is a wrong answer
+                        wrong.append((name, type(error).__name__))
+                    else:
+                        if body == self.BODIES[0]:
+                            wrong.append((name, "accepted"))
+        self.assertEqual(wrong, [])
+
+
+class OversizeErrorBodyTest(TestCase):
+    """A streamed download reads at most ``_DOWNLOAD_MAX_ERROR_BYTES`` of an error body; one larger than that
+    keeps its HTTP status (a 500 stays 500, a 200 JSON body is an error with status 200, also under a CSV content
+    type, where it is too long to parse) and saves no file."""
+
+    def test_an_error_body_over_the_cap_keeps_its_status(self):
+        size = ZeroBounce._DOWNLOAD_MAX_ERROR_BYTES + 1024 * 1024
+        folder = Path(tempfile.mkdtemp())
+        out = str(folder / "out.csv")
+        client = ZeroBounce(KEY)
+        cases = (
+            (500, b"x" * size, "text/plain"),
+            (503, b"<html>" + b"x" * size, "text/html"),
+            (200, b'{"error":"' + b"x" * size + b'"}', "application/json"),
+            (200, b'{"error":"' + b"x" * size + b'"}', "text/csv"),
+        )
+        for status, body, content_type in cases:
+            for name in ("get_file", "scoring_get_file", "email_finder_get_file", "domain_search_get_file"):
+                with patch("requests.sessions.Session.send", _file_reply(status, body, content_type)):
+                    with self.assertRaises(ZBApiException) as caught:
+                        getattr(client, name)("f1", out, stream=True)
+                self.assertEqual(caught.exception.status_code, status, (name, status, content_type))
+        self.assertEqual(list(folder.iterdir()), [])

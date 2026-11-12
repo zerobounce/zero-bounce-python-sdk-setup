@@ -235,6 +235,8 @@ class FakeTransport:
                 "other_domain_formats": [],
                 **echo,
             }
+        if path.endswith("/filters/list"):
+            return [{"rule": "block", "target": "email", "value": "a@example.com", **echo}]
         if "/filters/" in path:
             return {"Message": "Filter successfully added", **echo}
         if path.endswith("/listS3files") and key.startswith("s3files-"):

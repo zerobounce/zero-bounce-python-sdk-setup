@@ -444,3 +444,105 @@ class EncodingClosureFuzzTest(TestCase):
 
     def test_text_without_a_secret_is_kept(self):
         self.assertEqual(_redact_secrets("Invalid email a+b%20c\\/d", [FUZZ_SECRET]), "Invalid email a+b%20c\\/d")
+
+
+class DecodeDepthTest(TestCase):
+    """S4: the decode check covers four layers, the SDK's own request encoding plus three echo layers
+    (standard.md): a proxy that URL-encodes the request URL three times over still hands back no key."""
+
+    SECRET = 'probe"key/ZQXMARK01+23&ab c\\xyz'
+
+    @staticmethod
+    def _three_times(text):
+        from urllib.parse import quote
+
+        return quote(quote(quote(text, safe=""), safe=""), safe="")
+
+    def test_a_key_under_four_layers_is_omitted(self):
+        from urllib.parse import quote_plus
+
+        from zerobouncesdk.zerobouncesdk import CREDENTIAL_OMITTED_MESSAGE
+
+        body = self._three_times(f"GET /v2/getcredits?api_key={quote_plus(self.SECRET)} HTTP/1.1")
+        self.assertEqual(_redact_secrets(body, [self.SECRET]), CREDENTIAL_OMITTED_MESSAGE)
+        self.assertTrue(any(self.SECRET in view for view in _views(body, layers=4)))
+
+    def test_every_call_omits_a_url_echoed_under_three_more_encodings(self):
+        from tests.test_transport_guards_offline import _BASE_URL_ATTRIBUTES, LocalServer, _quiet, client_calls
+
+        server = LocalServer(lambda h: (400, {"Content-Type": "text/plain"}, self._three_times(h.path).encode()))
+        self.addCleanup(server.close)
+        patcher = patch("zerobouncesdk.zerobouncesdk._https_url", lambda url: url)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        client = ZeroBounce(self.SECRET)
+        client._base_url = server.url + "/v2"
+        for attribute, path in _BASE_URL_ATTRIBUTES.items():
+            setattr(client, attribute, server.url + path)
+        out = str(Path(tempfile.mkdtemp()) / "out.csv")
+        leaks, errors = [], 0
+        for name, variants in client_calls(client, out).items():
+            for call in variants:
+                try:
+                    _quiet(call)
+                except Exception as error:  # noqa: BLE001 - every error is inspected
+                    errors += 1
+                    if any(self.SECRET in view for text in _error_texts(error) for view in _views(text, layers=4)):
+                        leaks.append(name)
+        self.assertGreater(errors, 40)
+        self.assertEqual(leaks, [])
+
+
+class SurrogatePairDecodeTest(TestCase):
+    """S4/S7: ``\\uXXXX\\uXXXX`` surrogate pairs are joined when decoding, so a non-BMP secret whose every
+    character the echo ``\\u``-escaped (on top of the SDK's own ASCII JSON escaping) is still found."""
+
+    def test_a_u_escaped_surrogate_pair_is_decoded(self):
+        from zerobouncesdk.zerobouncesdk import CREDENTIAL_OMITTED_MESSAGE
+
+        secret = "pw\U0001F600ZQXMARK"
+        once = json.dumps(secret)[1:-1]  # pw😀ZQXMARK, what requests sends for a JSON body
+        body = "".join("\\u%04x" % ord(char) for char in once)
+        self.assertEqual(_redact_secrets(body, [secret]), CREDENTIAL_OMITTED_MESSAGE)
+
+    def test_a_smtp_password_echoed_that_way_does_not_leak(self):
+        secret = "pw\U0001F600ZQXMARK"
+        body = "".join("\\u%04x" % ord(char) for char in json.dumps(secret)[1:-1])
+        reply = json.dumps({"error": "rejected " + body}).encode()
+        warmup = ZeroBounceWarmup(KEY)
+        with patch(
+            "requests.sessions.Session.send",
+            lambda session, request, **kw: offline._response(400, reply, "application/json"),
+        ):
+            with self.assertRaises(ZBApiException) as caught:
+                warmup.test_smtp_configuration("s@example.com", "user", secret, "smtp.example.com", 587)
+        self.assertNotIn("ZQXMARK", str(caught.exception))
+
+
+class DecodeStepsTest(TestCase):
+    """S4: every decode step of the check is needed: lower-case ``%xx`` (next to invalid UTF-8), ``+`` as space,
+    JSON escapes and ``\\uXXXX``; a NUL or ``%00`` before the secret does not end the check."""
+
+    SECRET = "zq x/ZQXMARK"
+
+    @staticmethod
+    def _lower_hex(text):
+        return "".join("%%%02x" % byte for byte in text.encode())
+
+    def test_each_encoding_alone_is_caught(self):
+        from zerobouncesdk.zerobouncesdk import CREDENTIAL_OMITTED_MESSAGE
+
+        secret = self.SECRET
+        u_escaped = "".join("\\u%04x" % ord(char) for char in secret)
+        bodies = {
+            "lower-case %xx after invalid UTF-8": "%ff%fe" + self._lower_hex(secret),
+            "+ as space, then %xx": self._lower_hex(secret.split(" ")[0]) + "+" + self._lower_hex(secret.split(" ")[1]),
+            "JSON \\u escapes": u_escaped,
+            "\\u escapes, URL-encoded": self._lower_hex(u_escaped),
+            "a literal + kept, %xx decoded": "zq+x" + self._lower_hex("/ZQXMARK"),
+            "NUL first": "\x00" + u_escaped,
+            "%00 first": "%00" + self._lower_hex(secret),
+        }
+        for label, body in bodies.items():
+            secrets = ["zq+x/ZQXMARK"] if label.startswith("a literal +") else [secret]
+            self.assertEqual(_redact_secrets("rejected " + body, secrets), CREDENTIAL_OMITTED_MESSAGE, label)
