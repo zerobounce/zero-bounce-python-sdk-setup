@@ -12,6 +12,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `get_file` and the other result-file downloads without `stream=True` delete the file at `download_path` when writing it fails (for example on a full disk) before raising. Up to 3.0.1 the error was raised but the truncated file stayed behind, where it could be read as the result.
 - `ZeroBounceWarmup.download_seeds` and `download_statistics` with a `download_path` delete that file when writing it fails (for example on a full disk) before raising. Up to 3.0.1 the truncated CSV stayed behind.
 - `delete_inbox_placement_test` returns `None` when the API answers with an empty 2xx (204 No Content), as the Go SDK does. Up to 3.0.1 it raised `ZBApiException` ("Empty response"). A JSON answer is returned as before; the other Inbox Placement calls still treat an empty body as an error.
+- `ZeroBounceWarmup` errors reported on a 200 carry `status_code` 200: an HTML page (such as a proxy's "Access denied" page), a body that is not valid JSON, and a JSON body or empty body from `download_seeds` or `download_statistics`. Up to 3.0.1 their `status_code` was `None`.
+- `ZeroBounceWarmup.add_sending_account` parses `ignore_conflict` strictly, as `ZeroBounce` parses its boolean options: `True`/`False`, `"true"`/`"false"` (any case) and `1`/`0` are accepted, and anything else raises `ZBClientException("Invalid parameter: ignore_conflict must be true or false")` before a request is sent. Up to 3.0.1 the value went through `bool()`, so `ignore_conflict="false"` sent `true`.
 
 ## [3.0.1] - 2026-11-11
 

@@ -16,7 +16,14 @@ import requests
 from requests.exceptions import RequestException
 
 from .zb_exceptions import ZBApiException, ZBClientException
-from .zerobouncesdk import _check_api_key, _looks_like_html, _message_from_body, _path_segment, _response_text
+from .zerobouncesdk import (
+    _check_api_key,
+    _looks_like_html,
+    _message_from_body,
+    _path_segment,
+    _response_text,
+    _strict_bool,
+)
 
 DateLike = Union[date, str]
 
@@ -106,18 +113,24 @@ class ZeroBounceWarmup:
             return None
         content_type = response.headers.get("Content-Type", "")
         if _looks_like_html(body, content_type):
-            raise ZBApiException(self._redact(_message_from_body(body, response.status_code), secrets))
+            raise ZBApiException(
+                self._redact(_message_from_body(body, response.status_code), secrets), status_code=response.status_code
+            )
         try:
             return response.json()
         except ValueError:
-            raise ZBApiException(self._redact(_message_from_body(body, response.status_code), secrets)) from None
+            raise ZBApiException(
+                self._redact(_message_from_body(body, response.status_code), secrets), status_code=response.status_code
+            ) from None
 
     def _csv(self, path: str, params=None, download_path: Optional[str] = None) -> str:
         response = self._send("GET", path, params=params)
         body = _response_text(response)
         content_type = response.headers.get("Content-Type", "")
         if not body.strip() or _looks_like_html(body, content_type) or "application/json" in content_type.lower():
-            raise ZBApiException(self._redact(_message_from_body(body, response.status_code)))
+            raise ZBApiException(
+                self._redact(_message_from_body(body, response.status_code)), status_code=response.status_code
+            )
         if download_path:
             directory = os.path.dirname(download_path)
             if directory:
@@ -218,7 +231,7 @@ class ZeroBounceWarmup:
             if email_content is not None or managed_sending is not None:
                 raise ZBClientException("Invalid parameter: email_content and managed_sending are for zb_managed")
         if ignore_conflict is not None:
-            body["ignore_conflict"] = bool(ignore_conflict)
+            body["ignore_conflict"] = _strict_bool(ignore_conflict, "ignore_conflict")
         if email_content is not None:
             content = dict(email_content)
             types = content.get("types_of_emails")
