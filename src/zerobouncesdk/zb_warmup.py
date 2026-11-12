@@ -6,21 +6,24 @@ key, and it authenticates with an ``API-Key`` header instead of an ``api_key`` p
 """
 
 import contextlib
+import json as _json_module
 import os
 import re
+import tempfile
 from datetime import date, timedelta
 from typing import Optional, Union
-from urllib.parse import quote
 
 import requests
 from requests.exceptions import RequestException
 
 from .zb_exceptions import ZBApiException, ZBClientException
 from .zerobouncesdk import (
+    _RefusesPickling,
     _check_api_key,
     _looks_like_html,
     _message_from_body,
     _path_segment,
+    _redact_secrets,
     _response_text,
     _strict_bool,
 )
@@ -31,7 +34,7 @@ _SEARCH_FROM = re.compile(r"^[A-Za-z0-9.\-_@+]*$")
 _ISO_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 
-class ZeroBounceWarmup:
+class ZeroBounceWarmup(_RefusesPickling):
     """The ZeroBounce Warmup API. One instance per Warmup API key; the key is bound to one team."""
 
     DEFAULT_BASE_URL = "https://warmup-api.zerobounce.net"
@@ -69,12 +72,7 @@ class ZeroBounceWarmup:
     # -- transport ----------------------------------------------------------------------------
 
     def _redact(self, text, extra_secrets=()) -> str:
-        text = str(text)
-        for secret in (self._api_key, *extra_secrets):
-            if secret:
-                for form in (secret, quote(secret, safe=""), repr(secret)[1:-1]):
-                    text = text.replace(form, "***")
-        return text
+        return _redact_secrets(text, (self._api_key, *extra_secrets))
 
     def _send(self, method: str, path: str, *, params=None, json=None, secrets=()):
         try:
@@ -129,7 +127,12 @@ class ZeroBounceWarmup:
         response = self._send("GET", path, params=params)
         body = _response_text(response)
         content_type = response.headers.get("Content-Type", "")
-        if not body.strip() or _looks_like_html(body, content_type) or "application/json" in content_type.lower():
+        if (
+            not body.strip()
+            or _looks_like_html(body, content_type)
+            or "application/json" in content_type.lower()
+            or self._is_json(body)
+        ):
             raise ZBApiException(
                 self._redact(_message_from_body(body, response.status_code)), status_code=response.status_code
             )
@@ -137,16 +140,31 @@ class ZeroBounceWarmup:
             directory = os.path.dirname(download_path)
             if directory:
                 os.makedirs(directory, exist_ok=True)
-            handle = open(download_path, "wb")
+            # Written to a temporary file and moved into place, so a failed write never truncates or
+            # deletes a file already at download_path.
+            fd, partial = tempfile.mkstemp(dir=directory or ".", prefix=".zb-download-", suffix=".part")
+            os.close(fd)
             try:
-                with handle:
+                with open(partial, "wb") as handle:
                     handle.write(response.content)
+                os.replace(partial, download_path)
             except BaseException:
-                # A failed write (a full disk) must not leave a truncated file that reads as the CSV.
                 with contextlib.suppress(OSError):
-                    os.unlink(download_path)
+                    os.unlink(partial)
                 raise
         return body
+
+    @staticmethod
+    def _is_json(body: str) -> bool:
+        """Whether a CSV download's body is a JSON object or array (an API error under a CSV content type)."""
+        text = body.strip()
+        if text[:1] not in ("{", "["):
+            return False
+        try:
+            _json_module.loads(text)
+        except ValueError:
+            return False
+        return True
 
     # -- argument checks ----------------------------------------------------------------------
 
@@ -247,6 +265,8 @@ class ZeroBounceWarmup:
             offset = sending.get("timezone_offset")
             if offset is not None and (isinstance(offset, bool) or not isinstance(offset, (int, float)) or not -11 <= offset <= 14):
                 raise ZBClientException("Invalid parameter: timezone_offset (must be -11 to 14)")
+            if sending.get("weekdays_only") is not None:
+                sending["weekdays_only"] = _strict_bool(sending["weekdays_only"], "weekdays_only")
             if sending.get("warmup_start_date") is not None:
                 sending["warmup_start_date"] = self._iso_date(sending["warmup_start_date"], "warmup_start_date")
             body["managed_sending"] = sending

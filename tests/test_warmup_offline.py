@@ -213,6 +213,20 @@ class WarmupTest(TestCase):
         self.client.add_sending_account("s@example.com", "self_managed", engagement_rule_id=0, ignore_conflict=None)
         self.assertNotIn("ignore_conflict", self._only().json)
 
+    def test_weekdays_only_is_parsed_strictly(self):
+        # managed_sending.weekdays_only is a boolean on the wire, parsed like every other boolean option.
+        for value, sent in ((False, False), ("false", False), ("0", False), (0, False),
+                            (True, True), ("TRUE", True), ("1", True), (1, True)):
+            self.requests.clear()
+            self.client.add_sending_account("s@example.com", "zb_managed", managed_sending={"weekdays_only": value})
+            self.assertIs(self._only().json["managed_sending"]["weekdays_only"], sent, repr(value))
+        self.requests.clear()
+        for value in ("junk", "yes", "", 2, [], object()):
+            with self.assertRaises(ZBClientException, msg=repr(value)) as caught:
+                self.client.add_sending_account("s@example.com", "zb_managed", managed_sending={"weekdays_only": value})
+            self.assertIn("weekdays_only", str(caught.exception))
+        self.assertEqual(self.requests, [])
+
     def test_timezone_offset_takes_fractions_within_minus_11_to_14(self):
         for offset in (5.5, 3.0, -11, 14):
             self.requests.clear()

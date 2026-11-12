@@ -146,3 +146,93 @@ class WarmupBodyRedactionTest(TestCase):
                     self.assertNotIn("user@example.com", str(error))
                 else:
                     self.fail(f"no error for {status} {content_type}")
+
+
+# A secret with the characters each encoding changes: JSON escapes '"' (and may escape '/'), URLs encode all four.
+ODD_KEY = 'odd"key/with+plus%25'
+ODD_PASSWORD = 'pw"with/slash+plus%41'
+
+
+def _echo_forms(secret):
+    """The secret as a server or proxy can echo it: raw, URL-encoded, and JSON-escaped (with and without '\\/')."""
+    from urllib.parse import quote, quote_plus
+
+    escaped = json.dumps(secret)[1:-1]
+    return [secret, quote_plus(secret), quote(secret, safe=""), escaped, escaped.replace("/", "\\/")]
+
+
+def _echo_bodies(secret):
+    """Bodies that quote the secret in each form; JSON bodies are written by hand so the escaping is the server's."""
+    for form in _echo_forms(secret):
+        yield 400, f'{{"error": "Invalid API key {form}"}}'.encode(), "application/json"
+        yield 200, f'{{"error": "Invalid API key {form}"}}'.encode(), "application/json"
+        yield 200, f'{{"success": false, "message": "rejected {form}"}}'.encode(), "application/json"
+        yield 500, f"upstream failed for ?api_key={form}".encode(), "text/plain"
+
+
+def _leaks(text, secret):
+    return [form for form in _echo_forms(secret) if form in text]
+
+
+class JsonEscapedSecretTest(TestCase):
+    """S4/S7: a secret quoted in a body is masked in every form, on every request method."""
+
+    def _sweep(self, calls, secret):
+        from tests.test_transport_guards_offline import _quiet
+
+        leaks = []
+        for status, body, content_type in _echo_bodies(secret):
+            with patch(
+                "requests.sessions.Session.send",
+                lambda session, request, **kw: offline._response(status, body, content_type),
+            ):
+                for name, call in calls:
+                    try:
+                        _quiet(call)
+                    except Exception as error:  # noqa: BLE001 - every error is inspected
+                        seen = f"{error}|{error!r}|{error.args!r}|{error.__context__!r}|{error.__cause__!r}"
+                        found = _leaks(seen, secret)
+                        if found:
+                            leaks.append((name, status, found))
+        return leaks
+
+    def test_the_client_masks_its_key_in_every_form(self):
+        from tests.test_transport_guards_offline import client_calls
+
+        client = ZeroBounce(ODD_KEY)
+        out = str(Path(tempfile.mkdtemp()) / "out.csv")
+        calls = [(name, call) for name, variants in client_calls(client, out).items() for call in variants]
+        self.assertEqual(self._sweep(calls, ODD_KEY), [])
+
+    def test_the_warmup_client_masks_its_key_in_every_form(self):
+        from tests.test_transport_guards_offline import warmup_calls
+
+        warmup = ZeroBounceWarmup(ODD_KEY)
+        out = str(Path(tempfile.mkdtemp()) / "out.csv")
+        calls = [(name, lambda c=call: c(warmup)) for name, call in warmup_calls(out).items()]
+        self.assertEqual(self._sweep(calls, ODD_KEY), [])
+
+    def test_smtp_secrets_are_masked_in_every_form(self):
+        warmup = ZeroBounceWarmup(KEY)
+        for secret, call in (
+            (ODD_PASSWORD, lambda: warmup.test_smtp_configuration("s@example.com", "user", ODD_PASSWORD, "smtp.example.com", 587)),
+            (ODD_PASSWORD, lambda: warmup.test_smtp_configuration("s@example.com", ODD_PASSWORD, "pw", "smtp.example.com", 587)),
+        ):
+            self.assertEqual(self._sweep([("test_smtp_configuration", call)], secret), [])
+
+
+class PicklingTest(TestCase):
+    """S6: a pickle of a client would carry its key to wherever the pickle is written, so it is refused."""
+
+    def test_clients_refuse_to_be_pickled(self):
+        import copy
+        import pickle
+
+        for client in (ZeroBounce(KEY), ZeroBounceWarmup(KEY)):
+            for protocol in range(pickle.HIGHEST_PROTOCOL + 1):
+                with self.assertRaises(TypeError, msg=f"{type(client).__name__} protocol {protocol}") as caught:
+                    pickle.dumps(client, protocol)
+                self.assertNotIn(KEY, str(caught.exception))
+            for clone in (copy.copy, copy.deepcopy):
+                with self.assertRaises(TypeError):
+                    clone(client)

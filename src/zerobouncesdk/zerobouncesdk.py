@@ -189,6 +189,42 @@ def _strict_bool(value, name: str) -> bool:
     raise ZBClientException(f"Invalid parameter: {name} must be true or false")
 
 
+def _secret_forms(secret: str) -> list:
+    """Every form a secret can take in a body or URL echoed back to us: raw, URL-encoded and JSON-escaped.
+
+    Longest first, so a form that contains another is masked whole.
+    """
+    if not secret:
+        return []
+    forms = {
+        secret,
+        quote_plus(secret),
+        quote(secret, safe=""),
+        quote(secret),
+        repr(secret)[1:-1],
+        json.dumps(secret)[1:-1],
+        json.dumps(secret, ensure_ascii=False)[1:-1],
+    }
+    forms |= {form.replace("/", "\\/") for form in list(forms) if "/" in form}  # JSON's optional "\/"
+    return sorted((form for form in forms if form), key=len, reverse=True)
+
+
+def _redact_secrets(text, secrets) -> str:
+    """``text`` with every form of every secret masked."""
+    text = str(text)
+    for secret in secrets:
+        for form in _secret_forms(secret):
+            text = text.replace(form, "***")
+    return text
+
+
+class _RefusesPickling:
+    """A client holds its API key; pickling it would write the key to wherever the pickle goes."""
+
+    def __reduce_ex__(self, protocol):
+        raise TypeError(f"{type(self).__name__} cannot be pickled or copied: it holds an API key")
+
+
 def _wire_bool(value, name: str) -> str:
     """A strict boolean option as the string the API expects in a query or form."""
     return "true" if _strict_bool(value, name) else "false"
@@ -225,7 +261,7 @@ def _response_text(response) -> str:
     return text if isinstance(text, str) else ""
 
 
-class ZeroBounce:
+class ZeroBounce(_RefusesPickling):
     """Client for the ZeroBounce API: validation, scoring, email finder and domain search, bulk and S3/SFTP
     files, the list evaluator, filters and the Inbox Placement Tester. The Warmup API has its own client,
     ``ZeroBounceWarmup``, with its own key."""
@@ -343,11 +379,7 @@ class ZeroBounce:
 
     def _redact(self, text) -> str:
         """Mask the API key in text that can end up in exception messages or logs."""
-        text = str(text)
-        for secret in (self._api_key, quote_plus(self._api_key), repr(self._api_key)[1:-1]):
-            if secret:
-                text = text.replace(secret, "***")
-        return text
+        return _redact_secrets(text, (self._api_key,))
 
     def _read_json_payload(self, response, message_only_is_error: bool = False):
         body = _response_text(response)
@@ -1002,7 +1034,7 @@ class ZeroBounce:
         gender_column: int = None,
         ip_address_column: int = None,
         has_header_row: bool = False,
-        remove_duplicate: bool = True,
+        remove_duplicate: Optional[bool] = None,
         allow_phase_2: Optional[bool] = None,
     ):
         """Allows user to send a file for bulk email validation
@@ -1025,8 +1057,8 @@ class ZeroBounce:
             The IP Address the email signed up from.
         has_header_row: bool
             If the first row from the submitted file is a header row.
-        remove_duplicate: bool
-            If you want the system to remove duplicate emails.
+        remove_duplicate: bool or None
+            If you want the system to remove duplicate emails. Sent only when set (the API defaults to True).
         allow_phase_2: bool or None
             When not None, sends allow_phase_2 (validation bulk sendfile only).
 
@@ -1071,7 +1103,7 @@ class ZeroBounce:
         gender_column: int = None,
         ip_address_column: int = None,
         has_header_row: bool = False,
-        remove_duplicate: bool = True,
+        remove_duplicate: Optional[bool] = None,
         allow_phase_2: Optional[bool] = None,
     ):
         """Send a file for bulk email validation from a stream (e.g. in-memory CSV or uploaded file).
@@ -1096,8 +1128,8 @@ class ZeroBounce:
             The IP Address the email signed up from.
         has_header_row: bool
             If the first row from the submitted file is a header row.
-        remove_duplicate: bool
-            If you want the system to remove duplicate emails.
+        remove_duplicate: bool or None
+            If you want the system to remove duplicate emails. Sent only when set (the API defaults to True).
         allow_phase_2: bool or None
             When not None, sends allow_phase_2 (validation bulk sendfile only).
 
@@ -1133,7 +1165,7 @@ class ZeroBounce:
         email_address_column: int,
         return_url: str = None,
         has_header_row: bool = False,
-        remove_duplicate: bool = True,
+        remove_duplicate: Optional[bool] = None,
     ):
         """Allows user to send a file for bulk email scoring
 
@@ -1147,8 +1179,8 @@ class ZeroBounce:
             The URL will be used to call back when the validation is completed.
         has_header_row: bool
             If the first row from the submitted file is a header row.
-        remove_duplicate: bool
-            If you want the system to remove duplicate emails.
+        remove_duplicate: bool or None
+            If you want the system to remove duplicate emails. Sent only when set (the API defaults to True).
 
         Raises
         ------
@@ -1177,7 +1209,7 @@ class ZeroBounce:
         email_address_column: int,
         return_url: str = None,
         has_header_row: bool = False,
-        remove_duplicate: bool = True,
+        remove_duplicate: Optional[bool] = None,
     ):
         """Send a file for bulk email scoring from a stream.
 
@@ -1193,8 +1225,8 @@ class ZeroBounce:
             The URL will be used to call back when the validation is completed.
         has_header_row: bool
             If the first row from the submitted file is a header row.
-        remove_duplicate: bool
-            If you want the system to remove duplicate emails.
+        remove_duplicate: bool or None
+            If you want the system to remove duplicate emails. Sent only when set (the API defaults to True).
 
         Returns
         -------

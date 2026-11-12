@@ -297,6 +297,8 @@ class StrictBooleanSweepTest(ParityTestCase):
         parsed = set(re.findall(r"_(?:strict|wire)_bool\([^,]+,\s*\"(\w+)\"\)", source))
         known = {name for names in self._booleans().values() for name in names}
         # activity_data on a download is a ZBGetFileOptions field, with its own test above.
+        # weekdays_only is a field of Warmup's managed_sending dict: test_warmup_offline.test_weekdays_only_is_parsed_strictly.
+        known.add("weekdays_only")
         self.assertTrue(parsed)
         self.assertEqual(parsed - known, set())
 

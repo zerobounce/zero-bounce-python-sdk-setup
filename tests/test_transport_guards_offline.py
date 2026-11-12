@@ -351,6 +351,16 @@ class TimeoutSweepTest(TestCase):
         for name, call in warmup_calls(self.out).items():
             self._check(name, lambda c=call: c(warmup), 1.234)
 
+    def test_the_default_timeouts_are_sent(self):
+        # The clients the public constructors build, without a timeout argument: 120 seconds on every request.
+        client = ZeroBounce(KEY)
+        for name, variants in client_calls(client, self.out).items():
+            for call in variants:
+                self._check(name, call, 120.0)
+        warmup = ZeroBounceWarmup(KEY)
+        for name, call in warmup_calls(self.out).items():
+            self._check(name, lambda c=call: c(warmup), 120.0)
+
 
 def _file_reply(status, body, content_type):
     def send(session, request, **kwargs):
@@ -490,6 +500,38 @@ class WarmupCsvWriteTest(TestCase):
                 self.warmup.download_seeds(str(path))
         self.assertEqual(path.read_bytes(), b"keep me\n")
 
+    def test_a_failed_write_keeps_an_existing_file(self):
+        class DiskFull(io.FileIO):
+            def write(self, data):
+                super().write(bytes(data[:10]))
+                raise OSError(errno.ENOSPC, "No space left on device")
+
+        def disk_full_open(path, mode="r", *args, **kwargs):
+            return DiskFull(path, mode.replace("b", ""))
+
+        with patch("zerobouncesdk.zb_warmup.open", disk_full_open, create=True):
+            for name, download in self.downloads.items():
+                path = self.folder / f"{name}.csv"
+                path.write_bytes(b"keep me\n")
+                with self.assertRaises(OSError, msg=name):
+                    download(str(path))
+                self.assertEqual(path.read_bytes(), b"keep me\n", f"{name} truncated or deleted the existing file")
+                self.assertEqual([p.name for p in self.folder.iterdir() if p.name.startswith(".zb-")], [], name)
+
+    def test_a_json_body_under_a_csv_content_type_is_an_error(self):
+        # The content type says CSV, but the body is JSON: an API error, never a CSV, and nothing is written.
+        for body in (b'{"error": "c_from not found"}', b'  \n{"success": false, "message": "no seeds"}', b'[]'):
+            with patch("requests.sessions.Session.send", _file_reply(200, body, "text/csv")):
+                for name, download in self.downloads.items():
+                    path = self.folder / f"{name}.csv"
+                    path.write_bytes(b"keep me\n")
+                    with self.assertRaises(ZBApiException, msg=f"{name} {body!r}") as caught:
+                        download(str(path))
+                    self.assertEqual(caught.exception.status_code, 200)
+                    self.assertEqual(path.read_bytes(), b"keep me\n", name)
+                    with self.assertRaises(ZBApiException, msg=f"{name} {body!r} without a path"):
+                        download(None)
+
     def test_a_complete_write_is_kept(self):
         for name, download in self.downloads.items():
             path = self.folder / "nested" / f"{name}.csv"
@@ -598,3 +640,33 @@ class KeyEchoSweepTest(TestCase):
         calls = {name: [lambda c=call: c(warmup)] for name, call in warmup_calls(self.out).items()}
         # A 200 JSON body is a Warmup result, whatever it says.
         self._sweep(calls, must_raise={"200 HTML title", "200 JSON cut off", "400 text quoting the URL", '400 {"error"}'})
+
+
+class HtmlContentTypeTest(TestCase):
+    """A text/html answer is an error by its content type alone, even when the body has no HTML tags."""
+
+    def test_json_calls_and_downloads_reject_text_html(self):
+        out = str(Path(tempfile.mkdtemp()) / "out.csv")
+        client = ZeroBounce(KEY)
+        warmup = ZeroBounceWarmup(KEY)
+        calls = [(name, call) for name, variants in client_calls(client, out).items() for call in variants]
+        calls += [(name, lambda c=call: c(warmup)) for name, call in warmup_calls(out).items()]
+        # A body every path would otherwise accept: JSON for the JSON calls, a CSV line for the downloads.
+        for body in (b'{"success": true, "Credits": "5", "file_id": "f1"}', b"email,status\na@example.com,valid\n"):
+            with patch("requests.sessions.Session.send", _file_reply(200, body, "text/html; charset=utf-8")):
+                accepted = []
+                for name, call in calls:
+                    if name.endswith("get_file") or name.startswith("download_"):
+                        if body.startswith(b"{"):
+                            continue  # a JSON body is rejected as JSON anyway
+                    elif not body.startswith(b"{"):
+                        continue  # a CSV body is rejected as non-JSON anyway
+                    try:
+                        _quiet(call)
+                    except ZBApiException as error:
+                        self.assertEqual(error.status_code, 200, name)
+                    except Exception:  # noqa: BLE001 - another error is not an acceptance
+                        pass
+                    else:
+                        accepted.append(name)
+                self.assertEqual(accepted, [], body)
