@@ -10,6 +10,7 @@ import io
 import socket
 import tempfile
 import threading
+import traceback
 import warnings
 from datetime import timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -421,6 +422,29 @@ class ResultFileErrorTest(TestCase):
                 self.client.get_file("f1", str(path))
         self.assertEqual(path.read_bytes(), b"keep me\n")
 
+    def test_a_json_error_under_a_csv_content_type_is_not_saved(self):
+        # The content type says CSV, but the body is the API's JSON error: only the body tells them apart.
+        # Every download, streamed and not, found from the public methods.
+        downloads = sorted(name for name in _public(ZeroBounce) if name.endswith("get_file"))
+        self.assertEqual(set(downloads), set(self.downloads))
+        bodies = (
+            b'{"success": false, "message": "File cannot be found."}',
+            b'  \n{"error": "File cannot be found."}',
+        )
+        for body in bodies:
+            with patch("requests.sessions.Session.send", _file_reply(200, body, "text/csv")):
+                for name in downloads:
+                    for stream in (False, True):
+                        path = self.folder / f"{name}-{stream}.csv"
+                        with self.assertRaises(ZBApiException, msg=f"{name} stream={stream} {body!r}") as caught:
+                            getattr(self.client, name)("f1", str(path), stream=stream)
+                        self.assertEqual(caught.exception.status_code, 200)
+                        self.assertFalse(path.exists(), f"{name} saved a JSON error (stream={stream})")
+                        self.assertEqual(
+                            [p for p in self.folder.iterdir() if p.name.startswith(".zb-download-")], [],
+                            f"{name} left a partial file",
+                        )
+
 
 class WarmupCsvWriteTest(TestCase):
     """A Warmup CSV saved to download_path: a failed write must not leave a truncated file behind."""
@@ -496,3 +520,81 @@ class InboxPlacementDeleteTest(TestCase):
         with patch("requests.sessions.Session.send", _file_reply(204, b"", "text/plain")):
             with self.assertRaises(ZBApiException):
                 ZeroBounce(KEY).get_inbox_placement_test(7)
+
+
+class KeyEchoSweepTest(TestCase):
+    """A response body that quotes the key (an API message naming it, a proxy echoing the request URL, an HTML
+    title) never hands it to the caller: no error from any public method of either client carries it, in its
+    raw or URL-encoded form, in its message, repr, attributes, or its cause or context."""
+
+    ECHO_KEY = "echo+key/42"
+    ENCODED = "echo%2Bkey%2F42"
+    JSON = "application/json"
+    BODIES = {
+        '200 {"error"}': (200, JSON, '{"error":"Invalid API key %s"}' % ECHO_KEY),
+        '200 {"success":false}': (200, JSON, '{"success":false,"message":"Invalid API key %s"}' % ECHO_KEY),
+        '200 batch "all" error': (
+            200, JSON, '{"email_batch":[],"errors":[{"email_address":"all","error":"Invalid API key %s"}]}' % ECHO_KEY
+        ),
+        "200 HTML title": (200, "text/html", "<html><head><title>Denied %s</title></head></html>" % ECHO_KEY),
+        "200 JSON cut off": (200, JSON, '{"error":"Invalid API key %s"' % ECHO_KEY),
+        "400 text quoting the URL": (400, "text/plain", "Bad request: https://x.example/v2/x?api_key=" + ENCODED),
+        '400 {"error"}': (400, JSON, '{"error":"Invalid API key %s"}' % ECHO_KEY),
+    }
+
+    def setUp(self):
+        self.answer = self.BODIES['200 {"error"}']
+        self.server = LocalServer(lambda h: (self.answer[0], {"Content-Type": self.answer[1]}, self.answer[2].encode()))
+        self.addCleanup(self.server.close)
+        # Plain http to the loopback server; https is enforced by its own sweep.
+        patcher = patch("zerobouncesdk.zerobouncesdk._https_url", lambda url: url)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.folder = Path(tempfile.mkdtemp())
+        self.out = str(self.folder / "out.csv")
+
+    def _visible(self, error):
+        """Everything a caller or a traceback printer can read off the error, its cause and context included."""
+        parts = ["".join(traceback.format_exception(type(error), error, error.__traceback__))]
+        seen = error
+        while seen is not None:
+            parts += [repr(seen), repr(seen.args), repr(vars(seen))]
+            seen = seen.__cause__ or seen.__context__
+        return "\n".join(parts)
+
+    def _sweep(self, calls, must_raise):
+        for label, answer in self.BODIES.items():
+            self.answer = answer
+            for name, variants in calls.items():
+                for call in variants:
+                    try:
+                        _quiet(call)
+                    except Exception as error:  # noqa: BLE001 - every error is checked
+                        text = self._visible(error)
+                        self.assertNotIn(self.ECHO_KEY, text, f"{name}: {label}")
+                        self.assertNotIn(self.ENCODED, text, f"{name}: {label}")
+                    else:
+                        self.assertNotIn(label, must_raise, f"{name} returned for {label}")
+            self.assertEqual(list(self.folder.iterdir()), [], f"a file was saved for {label}")
+
+    def test_every_client_request(self):
+        client = ZeroBounce(self.ECHO_KEY, timeout=timedelta(seconds=5))
+        client._base_url = self.server.url + "/v2"
+        for attribute, path in _BASE_URL_ATTRIBUTES.items():
+            setattr(client, attribute, self.server.url + path)
+        calls = client_calls(client, self.out)
+        self.assertEqual(_public(ZeroBounce, parity.HttpsSweepTest.NOT_REQUESTS) - set(calls), set())
+        for name in [name for name in calls if name.endswith("get_file")]:
+            calls[name] = [
+                lambda m=getattr(client, name): m("f1", self.out),
+                lambda m=getattr(client, name): m("f1", self.out, stream=True),
+            ]
+        # Each of these bodies is an error on every call of the client.
+        self._sweep(calls, must_raise=set(self.BODIES) - {'200 batch "all" error'})
+
+    def test_every_warmup_request(self):
+        warmup = ZeroBounceWarmup(self.ECHO_KEY, timeout=timedelta(seconds=5))
+        warmup._root = self.server.url + ZeroBounceWarmup.BASE_PATH
+        calls = {name: [lambda c=call: c(warmup)] for name, call in warmup_calls(self.out).items()}
+        # A 200 JSON body is a Warmup result, whatever it says.
+        self._sweep(calls, must_raise={"200 HTML title", "200 JSON cut off", "400 text quoting the URL", '400 {"error"}'})

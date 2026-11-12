@@ -194,6 +194,9 @@ def _wire_bool(value, name: str) -> str:
     return "true" if _strict_bool(value, name) else "false"
 
 
+# What a body that does not parse as JSON reads as, so the error is raised outside the except block.
+_NOT_JSON = object()
+
 # The keys a message-only body is made of.
 _MESSAGE_KEYS = ("error", "message", "error_message", "Message", "Error", "detail")
 
@@ -360,7 +363,11 @@ class ZeroBounce:
         try:
             payload = response.json()
         except ValueError:
-            raise ZBApiException(self._redact(_message_from_body(body, status)), status_code=status) from None
+            payload = _NOT_JSON
+        if payload is _NOT_JSON:
+            # Raised outside the except block: the parser's error quotes the body, so it must not be the
+            # __context__ (``from None`` only hides it from tracebacks).
+            raise ZBApiException(self._redact(_message_from_body(body, status)), status_code=status)
         if isinstance(payload, dict):
             title = payload.get("title")
             if isinstance(title, str) and payload.get("cloudflare_error") is True:
@@ -943,8 +950,9 @@ class ZeroBounce:
                 text = batch_error.error or "Invalid API Key or your account ran out of credits"
                 if isinstance(text, str):
                     text = _strip_error_prefix(text)
-                # Reported on an HTTP 200, like a dead key on the other calls.
-                raise ZBApiException(text, status_code=200)
+                # Reported on an HTTP 200, like a dead key on the other calls. The text comes from the body,
+                # which can quote the key.
+                raise ZBApiException(self._redact(text), status_code=200)
         return result
 
     def _send_file(
@@ -1658,7 +1666,7 @@ class ZeroBounce:
             params=params,
         )
         if isinstance(payload, dict) and payload.get("error"):
-            raise ZBApiException(payload["error"])
+            raise ZBApiException(self._redact(payload["error"]))
         # Documented as {"success": true, "files": [{"Name", "Size", "LastModified"}]}.
         if isinstance(payload, dict) and isinstance(payload.get("files"), list):
             return payload["files"]

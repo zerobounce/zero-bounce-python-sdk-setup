@@ -1,9 +1,13 @@
 """Behaviour every ZeroBounce SDK shares for the same API response (sdk-docs standard, section 3)."""
 
+import inspect
 import io
 import json
 import os
+import re
 import tempfile
+import types
+import typing
 from datetime import date
 from unittest import TestCase
 from unittest.mock import patch
@@ -17,6 +21,7 @@ from zerobouncesdk import (
     ZBGetFileOptions,
     ZBValidateBatchElement,
     ZeroBounce,
+    ZeroBounceWarmup,
 )
 
 KEY = "parity-key"
@@ -202,6 +207,122 @@ class StrictBooleanTest(ParityTestCase):
             with self.assertRaisesRegex(ZBClientException, "must be true or false"):
                 call()
         self.assertEqual(self.server.requests, [])
+
+
+
+def _is_bool(annotation) -> bool:
+    if annotation is bool:
+        return True
+    if typing.get_origin(annotation) in (typing.Union, types.UnionType):
+        return set(typing.get_args(annotation)) == {bool, type(None)}
+    return False
+
+
+class StrictBooleanSweepTest(ParityTestCase):
+    """Every boolean parameter of every public method is parsed strictly: ``"false"`` is never sent as true and
+    ``"junk"`` is rejected before a request. The parameters are found from the signatures, so a new boolean
+    parameter fails the completeness check until it is in the sweep."""
+
+    # Client-side switches that choose how a request is made, not API fields.
+    CLIENT_SWITCHES = {"use_post", "stream"}
+    D = "https://example.com/d"
+
+    @staticmethod
+    def _stream():
+        return io.BytesIO(b"email\na@example.com\n")
+
+    def _calls(self):
+        """Each method with a boolean parameter: (positional args, keyword args) builders."""
+        file_job = lambda: (("f.csv",), {"has_header_row": True, "return_url": self.D})  # noqa: E731
+        calls = {
+            "validate": lambda: (("a@example.com",), {}),
+            "validate_batch": lambda: (([ZBValidateBatchElement("a@example.com")],), {}),
+            "send_file": lambda: ((__file__, 1), {}),
+            "send_file_stream": lambda: ((self._stream(), "f.csv", 1), {}),
+            "scoring_send_file": lambda: ((__file__, 1), {}),
+            "scoring_send_file_stream": lambda: ((self._stream(), "f.csv", 1), {}),
+            "send_email_finder_file": lambda: ((__file__, 1), {"first_name_column": 2}),
+            "send_email_finder_file_stream": lambda: ((self._stream(), "f.csv", 1), {"first_name_column": 2}),
+            "send_domain_search_file": lambda: ((__file__, 1), {}),
+            "send_domain_search_file_stream": lambda: ((self._stream(), "f.csv", 1), {}),
+            "Warmup.add_sending_account": lambda: (("a@example.com", "self_managed"), {"engagement_rule_id": 0}),
+            "Warmup.update_sending_account": lambda: (("a@example.com", 1, 1), {"auto_enable": False}),
+        }
+        for job in ("validate_s3file", "score_s3file", "email_finder_s3file", "domain_search_s3file",
+                    "validate_sftpfile", "score_sftpfile", "email_finder_sftpfile", "domain_search_sftpfile"):
+            calls[job] = file_job
+        return calls
+
+    def _booleans(self):
+        """{method: [boolean parameter names]} for every public method of both clients, from the signatures."""
+        found = {}
+        for cls, prefix in ((ZeroBounce, ""), (ZeroBounceWarmup, "Warmup.")):
+            for name in dir(cls):
+                member = getattr(cls, name)
+                if name.startswith("_") or not callable(member) or inspect.isclass(member):
+                    continue
+                names = [
+                    p.name for p in inspect.signature(member).parameters.values()
+                    if _is_bool(p.annotation) and p.name not in self.CLIENT_SWITCHES
+                ]
+                if names:
+                    found[prefix + name] = names
+        return found
+
+    @staticmethod
+    def _sent(request, name):
+        """What a request sent for ``name`` (query, JSON body, form or multipart field), as a string."""
+        fields = {k: v[0] for k, v in parse_qs(urlsplit(request.url).query).items()}
+        if name in fields:
+            return fields[name]
+        body = request.body or b""
+        if isinstance(body, bytes):
+            body = body.decode("utf-8", "replace")
+        if body.startswith("{"):
+            value = json.loads(body).get(name)
+            return None if value is None else str(value).lower()
+        match = re.search(r'name="%s"\r\n(?:[^\r\n]+\r\n)*\r\n([^\r\n]*)' % re.escape(name), body)
+        if match:
+            return match.group(1)
+        return {k: v[0] for k, v in parse_qs(body).items()}.get(name)
+
+    def test_the_sweep_covers_every_boolean_parameter(self):
+        self.assertEqual(set(self._booleans()), set(self._calls()))
+
+    def test_the_library_parses_no_boolean_the_sweep_does_not_know(self):
+        source = "".join(
+            open(os.path.join(os.path.dirname(inspect.getfile(ZeroBounce)), f), encoding="utf-8").read()
+            for f in ("zerobouncesdk.py", "zb_warmup.py")
+        )
+        parsed = set(re.findall(r"_(?:strict|wire)_bool\([^,]+,\s*\"(\w+)\"\)", source))
+        known = {name for names in self._booleans().values() for name in names}
+        # activity_data on a download is a ZBGetFileOptions field, with its own test above.
+        self.assertTrue(parsed)
+        self.assertEqual(parsed - known, set())
+
+    def test_junk_is_rejected_and_false_is_never_sent_as_true(self):
+        client = ZeroBounce(KEY)
+        warmup = ZeroBounceWarmup(KEY)
+        server = self.serve('{"success":true,"address":"a@example.com","status":"valid","email_batch":[]}')
+        for method, names in self._booleans().items():
+            target = getattr(warmup, method[len("Warmup."):]) if method.startswith("Warmup.") else getattr(client, method)
+            for name in names:
+                args, kwargs = self._calls()[method]()
+                before = len(server.requests)
+                with self.assertRaises(ZBClientException, msg=f"{method} took {name}='junk'") as caught:
+                    target(*args, **{**kwargs, name: "junk"})
+                self.assertIn(name, str(caught.exception))
+                self.assertEqual(len(server.requests), before, f"{method} sent {name}='junk'")
+
+                args, kwargs = self._calls()[method]()
+                try:
+                    target(*args, **{**kwargs, name: "false"})
+                except ZBClientException as error:
+                    # A parameter that takes only True/False may reject the string.
+                    self.assertIn(name, str(error))
+                    continue
+                self.assertGreater(len(server.requests), before, f"{method} sent nothing")
+                self.assertEqual(self._sent(server.requests[-1], name), "false", f"{method} {name}='false'")
 
 
 class PerApiBaseUrlTest(ParityTestCase):
