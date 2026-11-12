@@ -6,7 +6,6 @@ key, and it authenticates with an ``API-Key`` header instead of an ``api_key`` p
 """
 
 import contextlib
-import json as _json_module
 import os
 import re
 from datetime import date, timedelta
@@ -26,6 +25,7 @@ from .zerobouncesdk import (
     _redact_secrets,
     _response_text,
     _strict_bool,
+    _strict_json,
 )
 
 DateLike = Union[date, str]
@@ -115,7 +115,7 @@ class ZeroBounceWarmup(_RefusesPickling):
                 self._redact(_message_from_body(body, response.status_code), secrets), status_code=response.status_code
             )
         try:
-            return response.json()
+            return _strict_json(body)
         except ValueError:
             pass
         # Raised outside the except block: the parser's error quotes the body, so it must not be the __context__.
@@ -161,7 +161,7 @@ class ZeroBounceWarmup(_RefusesPickling):
         if text[:1] not in ("{", "["):
             return False
         try:
-            _json_module.loads(text)
+            _strict_json(text)
         except ValueError:
             return False
         return True

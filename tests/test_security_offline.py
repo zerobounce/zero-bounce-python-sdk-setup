@@ -11,6 +11,7 @@ from requests.exceptions import ConnectionError as RequestsConnectionError
 
 from tests import test_offline_api as offline
 from zerobouncesdk import ZBApiException, ZBClientException, ZeroBounce, ZeroBounceWarmup
+from zerobouncesdk.zerobouncesdk import _redact_secrets
 
 KEY = "secret-key-123"
 
@@ -223,34 +224,49 @@ class JsonEscapedSecretTest(TestCase):
 
 
 class EverySpellingTest(TestCase):
-    """S4/S7: each spelling of a secret, built here with the encoders themselves, is masked.
+    """S4/S7: each spelling of a secret, composed here from the encoders themselves, is masked.
 
-    The first secret holds every character an encoding changes; the second a non-ASCII character next to
-    '/' and '"'. Each spelling has a value no other spelling has for one of them, so dropping any one from
-    ``_secret_forms`` fails.
+    {raw, JSON, JSON with \\/} (each JSON form with non-ASCII escaped or as is) x {as is, URL-encoded with +,
+    with %20, with / kept}, each JSON form escaped twice, and repr. The first secret holds every character an
+    encoding changes; the second a non-ASCII character next to a space, '/' and '"'. Each spelling has a value
+    no other spelling has for one of them, so dropping any one generator from ``_secret_forms`` fails.
     """
 
-    SECRETS = ("a b\"/+%&=<>'\\", 'pw\u00e9/"x')
+    SECRETS = ("a b\"/+%&=<>'\\", 'pw\u00e9 /"x')
 
     @staticmethod
     def spellings(secret):
         from urllib.parse import quote, quote_plus
 
-        ascii_json = json.dumps(secret)[1:-1]
-        unicode_json = json.dumps(secret, ensure_ascii=False)[1:-1]
-        return {
-            "raw": secret,
-            "URL-encoded, +": quote_plus(secret),
-            "URL-encoded, %20": quote(secret, safe=""),
-            "URL-encoded, / kept": quote(secret),
-            "repr": repr(secret)[1:-1],
-            "JSON": ascii_json,
-            "JSON, non-ASCII as is": unicode_json,
-            "JSON \\/": json.dumps(secret).replace("/", "\\/")[1:-1],
-            "JSON \\/, non-ASCII as is": json.dumps(secret, ensure_ascii=False).replace("/", "\\/")[1:-1],
-            "URL-encoded JSON, +": quote_plus(ascii_json),
-            "URL-encoded JSON, %20": quote(ascii_json, safe=""),
+        def as_json(text, ensure_ascii, slash):
+            escaped = json.dumps(text, ensure_ascii=ensure_ascii)[1:-1]
+            return escaped.replace("/", "\\/") if slash else escaped
+
+        escapers = {"raw": lambda text: text}
+        for ensure_ascii, slash in product((True, False), (False, True)):
+            label = "JSON" + (" \\/" if slash else "") + ("" if ensure_ascii else ", non-ASCII as is")
+            escapers[label] = lambda text, a=ensure_ascii, sl=slash: as_json(text, a, sl)
+        url_encoders = {
+            "": lambda text: text,
+            ", URL-encoded +": quote_plus,
+            ", URL-encoded %20": lambda text: quote(text, safe=""),
+            ", URL-encoded / kept": quote,
         }
+        spellings = {"repr": repr(secret)[1:-1]}
+        for (escape_label, escape), (url_label, encode) in product(escapers.items(), url_encoders.items()):
+            spellings[escape_label + url_label] = encode(escape(secret))
+        for escape_label, escape in escapers.items():
+            if escape_label != "raw":
+                spellings[escape_label + ", twice"] = escape(escape(secret))
+        return spellings
+
+    def test_the_spellings_are_composed(self):
+        self.assertEqual(len(self.spellings(self.SECRETS[0])), 1 + 5 * 4 + 4)
+
+    def test_each_spelling_is_masked_whole(self):
+        for secret in self.SECRETS:
+            for label, form in self.spellings(secret).items():
+                self.assertEqual(_redact_secrets(f"<{form}>", [secret]), "<***>", label)
 
     def test_each_spelling_is_needed_by_one_secret(self):
         shared = [

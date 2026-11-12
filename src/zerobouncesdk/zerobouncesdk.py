@@ -35,6 +35,19 @@ from . import (
 )
 
 
+def _reject_constant(name: str):
+    raise ValueError(f"{name} is not valid JSON")
+
+
+def _strict_json(text: str):
+    """``text`` parsed as RFC 8259 JSON, or ``ValueError``.
+
+    ``json.loads`` (and ``requests``' ``Response.json``) accept ``NaN``, ``Infinity`` and ``-Infinity``, which are
+    not JSON; a body holding them is not an API response either.
+    """
+    return json.loads(text, parse_constant=_reject_constant)
+
+
 def _looks_like_html(body: str, content_type: str = "") -> bool:
     if content_type and "text/html" in content_type.lower():
         return True
@@ -93,7 +106,7 @@ def _message_from_body(body: str, status_code: int) -> str:
         return "ZeroBounce returned an HTML error page instead of an API response."
     if trimmed[0] in "{[":
         try:
-            parsed = json.loads(trimmed)
+            parsed = _strict_json(trimmed)
         except ValueError:
             return "ZeroBounce returned a response that is not valid JSON."
         if isinstance(parsed, dict):
@@ -190,32 +203,36 @@ def _strict_bool(value, name: str) -> bool:
     raise ZBClientException(f"Invalid parameter: {name} must be true or false")
 
 
+def _json_escaped(text: str, ensure_ascii: bool, escape_slash: bool) -> str:
+    """``text`` as it appears inside a JSON string, ``/`` as is or as JSON's optional ``\\/``."""
+    escaped = json.dumps(text, ensure_ascii=ensure_ascii)[1:-1]
+    # Replacing in the JSON-escaped text is exact, since every backslash in it is already escaped.
+    return escaped.replace("/", "\\/") if escape_slash else escaped
+
+
 def _secret_forms(secret: str) -> list:
     """Every form a secret can take in a body or URL echoed back to us.
 
-    Raw, URL-encoded (``+`` and ``%20`` styles, ``/`` encoded or kept), ``repr``, JSON-escaped (non-ASCII as is
-    or as ``\\uXXXX``, ``/`` as is or as ``\\/``) and the URL-encoded JSON form, for a server that echoes a
-    URL-encoded copy of a JSON request body. Longest first, so a form that contains another is masked whole.
+    Composed from the encoders up to depth 2: {raw, JSON-escaped, JSON-escaped with ``\\/``} (each JSON form
+    with non-ASCII as is or as ``\\uXXXX``) x {as is, URL-encoded with ``+``, with ``%20``, with ``/`` kept},
+    each JSON form escaped twice (a JSON error body quoting the JSON request body), and ``repr``. Longest first,
+    so a form that contains another is masked whole.
     """
     if not secret:
         return []
-    ascii_json = json.dumps(secret)[1:-1]
-    unicode_json = json.dumps(secret, ensure_ascii=False)[1:-1]
-    forms = {
-        secret,
-        quote_plus(secret),
-        quote(secret, safe=""),
-        quote(secret),
-        repr(secret)[1:-1],
-        ascii_json,
-        unicode_json,
-        # JSON's optional "\/": replacing in the JSON-escaped text is exact, since every backslash in it is
-        # already escaped.
-        ascii_json.replace("/", "\\/"),
-        unicode_json.replace("/", "\\/"),
-        quote_plus(ascii_json),
-        quote(ascii_json, safe=""),
-    }
+    json_forms = [
+        _json_escaped(secret, ensure_ascii, escape_slash)
+        for ensure_ascii in (True, False)
+        for escape_slash in (False, True)
+    ]
+    twice = [
+        _json_escaped(_json_escaped(secret, ensure_ascii, escape_slash), ensure_ascii, escape_slash)
+        for ensure_ascii in (True, False)
+        for escape_slash in (False, True)
+    ]
+    forms = {repr(secret)[1:-1], *twice}
+    for form in (secret, *json_forms):
+        forms.update((form, quote_plus(form), quote(form, safe=""), quote(form)))
     return sorted((form for form in forms if form), key=len, reverse=True)
 
 
@@ -377,7 +394,7 @@ class ZeroBounce(_RefusesPickling):
         if not t or t[0] != "{":
             return False
         try:
-            o = json.loads(body)
+            o = _strict_json(body)
         except ValueError:
             return False
         if not isinstance(o, dict):
@@ -418,7 +435,7 @@ class ZeroBounce(_RefusesPickling):
         if status > 299 or _looks_like_html(body, content_type) or not body.strip():
             raise ZBApiException(self._redact(_message_from_body(body, status)), status_code=status)
         try:
-            payload = response.json()
+            payload = _strict_json(body)
         except ValueError:
             payload = _NOT_JSON
         if payload is _NOT_JSON:

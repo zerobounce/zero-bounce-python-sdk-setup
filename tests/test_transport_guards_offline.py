@@ -719,3 +719,43 @@ class HtmlContentTypeTest(TestCase):
                     else:
                         accepted.append(name)
                 self.assertEqual(accepted, [], body)
+
+
+class StrictJsonTest(TestCase):
+    """E7: a 2xx body that is not strict RFC 8259 JSON is an API error with status 200 on every call.
+
+    ``json.loads`` (and ``requests``' ``Response.json``) accept ``NaN``, ``Infinity`` and ``-Infinity`` by default.
+    """
+
+    BODIES = (
+        b"NaN",
+        b"Infinity",
+        b"-Infinity",
+        b'{"success": true, "Credits": NaN, "file_id": "f1"}',
+        b'{"success": true, "Credits": -Infinity, "file_id": "f1"}',
+        b"{a:1}",
+        b"[1,]",
+        b"123abc",
+        b'{"success": true, "Credits": "5", "file_id": "f1"} junk',
+    )
+
+    def test_every_call_rejects_a_body_that_is_not_strict_json(self):
+        out = str(Path(tempfile.mkdtemp()) / "out.csv")
+        client = ZeroBounce(KEY)
+        warmup = ZeroBounceWarmup(KEY)
+        calls = [(name, call) for name, variants in client_calls(client, out).items() for call in variants]
+        calls += [(f"warmup.{name}", lambda c=call: c(warmup)) for name, call in warmup_calls(out).items()]
+        accepted = []
+        for body in self.BODIES:
+            with patch("requests.sessions.Session.send", _file_reply(200, body, "application/json")):
+                for name, call in calls:
+                    try:
+                        _quiet(call)
+                    except ZBApiException as error:
+                        if error.status_code != 200:
+                            accepted.append((name, body, error.status_code))
+                    except Exception as error:  # noqa: BLE001 - any other error is a wrong answer too
+                        accepted.append((name, body, type(error).__name__))
+                    else:
+                        accepted.append((name, body))
+        self.assertEqual(accepted, [])

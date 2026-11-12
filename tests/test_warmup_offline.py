@@ -233,7 +233,7 @@ class WarmupTest(TestCase):
             self.client.add_sending_account("s@example.com", "zb_managed", managed_sending={"timezone_offset": offset})
             self.assertEqual(self.requests[0].json["managed_sending"], {"timezone_offset": offset})
         self.requests.clear()
-        for offset in (-11.5, 14.5, "5.5", True):
+        for offset in (-11.5, 14.5, "5.5", "1e1", True, float("nan"), float("inf"), float("-inf")):
             with self.assertRaisesRegex(ZBClientException, "timezone_offset", msg=repr(offset)):
                 self.client.add_sending_account("s@example.com", "zb_managed", managed_sending={"timezone_offset": offset})
         self.assertEqual(self.requests, [])
