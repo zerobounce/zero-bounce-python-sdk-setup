@@ -4,8 +4,10 @@ The sweeps enumerate every public request method of ``ZeroBounce`` (the HTTPS sw
 ``ZeroBounceWarmup`` (the list below), each with a guard that fails when a method is missing from it.
 """
 
+import contextlib
 import errno
 import io
+import socket
 import tempfile
 import threading
 import warnings
@@ -16,6 +18,7 @@ from unittest import TestCase
 from unittest.mock import patch
 
 from requests import Response
+from requests.exceptions import RequestException
 
 from tests import test_standard_parity_offline as parity
 from zerobouncesdk import ZBApiException, ZeroBounce, ZeroBounceWarmup
@@ -171,6 +174,138 @@ class RedirectSweepTest(TestCase):
         for name, call in warmup_calls(self.out).items():
             self._refused(name, lambda c=call: c(warmup))
 
+
+
+class RawSocketServer:
+    """A loopback HTTP server on a raw socket: reads each whole request, writes ``answer(request_line)`` and
+    closes the connection, so a response can promise more bytes than it sends."""
+
+    def __init__(self, answer):
+        self.hits = []
+        self._sock = socket.socket()
+        self._sock.bind(("127.0.0.1", 0))
+        self._sock.listen(16)
+        self.url = f"http://127.0.0.1:{self._sock.getsockname()[1]}"
+        self._answer = answer
+        threading.Thread(target=self._serve, daemon=True).start()
+
+    def close(self):
+        self._sock.close()
+
+    def _serve(self):
+        while True:
+            try:
+                conn, _ = self._sock.accept()
+            except OSError:
+                return
+            threading.Thread(target=self._reply, args=(conn,), daemon=True).start()
+
+    def _reply(self, conn):
+        with conn:
+            conn.settimeout(5)
+            line = self._read_request(conn)
+            self.hits.append(line)
+            conn.sendall(self._answer(line))
+            # Read until the client hangs up, so closing never resets a connection it is still reading.
+            with contextlib.suppress(OSError):
+                conn.shutdown(socket.SHUT_WR)
+                while conn.recv(65536):
+                    pass
+
+    @staticmethod
+    def _read_request(conn):
+        """The request line, after the headers and the whole body (Content-Length or chunked) are read."""
+        data = b""
+        while b"\r\n\r\n" not in data:
+            chunk = conn.recv(65536)
+            if not chunk:
+                break
+            data += chunk
+        head, _, body = data.partition(b"\r\n\r\n")
+        headers = head.decode("latin-1").lower()
+        length = 0
+        for header in headers.split("\r\n")[1:]:
+            name, _, value = header.partition(":")
+            if name.strip() == "content-length":
+                length = int(value)
+        if "transfer-encoding: chunked" in headers:
+            while not body.endswith(b"0\r\n\r\n"):
+                body += conn.recv(65536)
+        while len(body) < length:
+            chunk = conn.recv(65536)
+            if not chunk:
+                break
+            body += chunk
+        return head.split(b"\r\n", 1)[0].decode("latin-1")
+
+
+class CutShortBodySweepTest(TestCase):
+    """A 200 whose body is cut short is an error on every request path, including downloads (streamed or not)
+    and Warmup, and leaves no file behind. The fake sends a valid 25-byte JSON or CSV body that would read as a
+    complete result, then closes the connection: only the length check (``Content-Length``, or a chunked body
+    missing its last chunk) tells the transfer was broken."""
+
+    CSV = b"email,status\na@b.c,valid\n"  # 25 bytes
+    JSON = b'{"Credits":"5","a":"bbb"}'  # 25 bytes, valid JSON on its own
+
+    def setUp(self):
+        self.mode = "length"
+        self.server = RawSocketServer(self._answer)
+        self.addCleanup(self.server.close)
+        # Plain http to the loopback server; https is enforced by its own sweep.
+        patcher = patch("zerobouncesdk.zerobouncesdk._https_url", lambda url: url)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.folder = Path(tempfile.mkdtemp())
+        self.out = str(self.folder / "out.csv")
+
+    def _answer(self, request_line):
+        download = "getfile" in request_line or "/download" in request_line
+        content_type, body = ("text/csv", self.CSV) if download else ("application/json", self.JSON)
+        if self.mode == "length":
+            head = f"Content-Length: {len(body) + 975}"
+        else:  # chunked: one complete chunk, then the connection closes without the last (empty) chunk
+            head = "Transfer-Encoding: chunked"
+            body = b"%x\r\n%s\r\n" % (len(body), body)
+        return f"HTTP/1.1 200 OK\r\nContent-Type: {content_type}\r\n{head}\r\nConnection: close\r\n\r\n".encode() + body
+
+    def _client_calls(self):
+        client = ZeroBounce(KEY, timeout=timedelta(seconds=5))
+        client._base_url = self.server.url + "/v2"
+        for attribute, path in _BASE_URL_ATTRIBUTES.items():
+            setattr(client, attribute, self.server.url + path)
+        calls = client_calls(client, self.out)
+        self.assertEqual(_public(ZeroBounce, parity.HttpsSweepTest.NOT_REQUESTS) - set(calls), set())
+        # Every download, streamed too.
+        for name in [name for name in calls if name.endswith("get_file")]:
+            calls[name] = [
+                lambda m=getattr(client, name): m("f1", self.out),
+                lambda m=getattr(client, name): m("f1", self.out, stream=True),
+            ]
+        return calls
+
+    def _warmup_calls(self):
+        warmup = ZeroBounceWarmup(KEY, timeout=timedelta(seconds=5))
+        warmup._root = self.server.url + ZeroBounceWarmup.BASE_PATH
+        return {name: [lambda c=call: c(warmup)] for name, call in warmup_calls(self.out).items()}
+
+    def _sweep(self, calls):
+        for mode in ("length", "chunked"):
+            self.mode = mode
+            for name, variants in calls.items():
+                for call in variants:
+                    before = len(self.server.hits)
+                    with self.assertRaises(RequestException, msg=f"{name} ({mode})") as caught:
+                        _quiet(call)
+                    self.assertGreater(len(self.server.hits), before, f"{name} sent nothing")
+                    self.assertNotIn(KEY, str(caught.exception), name)
+                    self.assertEqual(list(self.folder.iterdir()), [], f"{name} ({mode}) left a file behind")
+
+    def test_every_client_request(self):
+        self._sweep(self._client_calls())
+
+    def test_every_warmup_request(self):
+        self._sweep(self._warmup_calls())
 
 class TimeoutSweepTest(TestCase):
     """Every request goes out with the client's timeout (requests has none by default)."""

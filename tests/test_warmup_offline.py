@@ -197,6 +197,22 @@ class WarmupTest(TestCase):
         self.client.create_custom_engagement("sender@example.com", 20, 25, 25)
         self.assertEqual(self._only().json, {"c_from": "sender@example.com", "reply_pct": 20, "important_pct": 25, "click_pct": 25})
 
+    def test_ignore_conflict_is_parsed_strictly(self):
+        # Parsed as the validation client parses its boolean options: "false" is false, junk raises.
+        for value, sent in ((False, False), ("false", False), ("FALSE", False), (0, False), ("0", False),
+                            (True, True), ("true", True), (1, True), ("1", True)):
+            self.requests.clear()
+            self.client.add_sending_account("s@example.com", "self_managed", engagement_rule_id=0, ignore_conflict=value)
+            self.assertIs(self._only().json["ignore_conflict"], sent, repr(value))
+        self.requests.clear()
+        for value in ("junk", "yes", "", 2, [], object()):
+            with self.assertRaises(ZBClientException, msg=repr(value)) as caught:
+                self.client.add_sending_account("s@example.com", "self_managed", engagement_rule_id=0, ignore_conflict=value)
+            self.assertIn("ignore_conflict", str(caught.exception))
+        self.assertEqual(self.requests, [])
+        self.client.add_sending_account("s@example.com", "self_managed", engagement_rule_id=0, ignore_conflict=None)
+        self.assertNotIn("ignore_conflict", self._only().json)
+
     def test_invalid_arguments_send_nothing(self):
         attempts = [
             lambda: ZeroBounceWarmup("  "),
@@ -262,15 +278,29 @@ class WarmupTest(TestCase):
         self.assertEqual(caught.exception.status_code, 302)
         self.assertEqual(len(self.requests), 1)  # not followed
 
+        # Errors on a 200 carry that status, as every other error the API reports does.
         self.replies["*"] = _response(200, b"<html><title>Access denied</title></html>", "text/html")
-        with self.assertRaises(ZBApiException):
+        for call in (self.client.get_seeds, self.client.download_seeds):
+            with self.assertRaises(ZBApiException) as caught:
+                call()
+            self.assertEqual(caught.exception.status_code, 200)
+            self.assertIn("Access denied", str(caught.exception))
+
+        self.replies["*"] = _response(200, b'{"seeds": [', "application/json")
+        with self.assertRaises(ZBApiException) as caught:
             self.client.get_seeds()
-        with self.assertRaises(ZBApiException):
-            self.client.download_seeds()
+        self.assertEqual(caught.exception.status_code, 200)
 
         self.replies["*"] = _response(200, {"error": "c_from not found"})
-        with self.assertRaises(ZBApiException):
+        with self.assertRaises(ZBApiException) as caught:
             self.client.download_statistics("s@example.com")
+        self.assertEqual(caught.exception.status_code, 200)
+        self.assertIn("c_from not found", str(caught.exception))
+
+        self.replies["*"] = _response(200, b"", "text/csv")
+        with self.assertRaises(ZBApiException) as caught:
+            self.client.download_seeds()
+        self.assertEqual(caught.exception.status_code, 200)
 
     def test_secrets_never_reach_error_messages(self):
         self.replies["*"] = lambda r: _response(400, {"error": f"bad login for password {r.json['password']} key {KEY}"})
