@@ -9,7 +9,6 @@ import contextlib
 import json as _json_module
 import os
 import re
-import tempfile
 from datetime import date, timedelta
 from typing import Optional, Union
 
@@ -22,6 +21,7 @@ from .zerobouncesdk import (
     _check_api_key,
     _looks_like_html,
     _message_from_body,
+    _partial_file,
     _path_segment,
     _redact_secrets,
     _response_text,
@@ -142,7 +142,7 @@ class ZeroBounceWarmup(_RefusesPickling):
                 os.makedirs(directory, exist_ok=True)
             # Written to a temporary file and moved into place, so a failed write never truncates or
             # deletes a file already at download_path.
-            fd, partial = tempfile.mkstemp(dir=directory or ".", prefix=".zb-download-", suffix=".part")
+            fd, partial = _partial_file(directory)
             os.close(fd)
             try:
                 with open(partial, "wb") as handle:

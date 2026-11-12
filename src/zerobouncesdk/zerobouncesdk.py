@@ -1,9 +1,10 @@
 import contextlib
+import itertools
 import json
 import re
-import tempfile
 import warnings
 from datetime import date, timedelta
+from secrets import token_hex
 import os
 from typing import BinaryIO, List, Optional, Union
 from urllib.parse import quote, quote_plus, urlsplit
@@ -190,23 +191,47 @@ def _strict_bool(value, name: str) -> bool:
 
 
 def _secret_forms(secret: str) -> list:
-    """Every form a secret can take in a body or URL echoed back to us: raw, URL-encoded and JSON-escaped.
+    """Every form a secret can take in a body or URL echoed back to us.
 
-    Longest first, so a form that contains another is masked whole.
+    Raw, URL-encoded (``+`` and ``%20`` styles, ``/`` encoded or kept), ``repr``, JSON-escaped (non-ASCII as is
+    or as ``\\uXXXX``, ``/`` as is or as ``\\/``) and the URL-encoded JSON form, for a server that echoes a
+    URL-encoded copy of a JSON request body. Longest first, so a form that contains another is masked whole.
     """
     if not secret:
         return []
+    ascii_json = json.dumps(secret)[1:-1]
+    unicode_json = json.dumps(secret, ensure_ascii=False)[1:-1]
     forms = {
         secret,
         quote_plus(secret),
         quote(secret, safe=""),
         quote(secret),
         repr(secret)[1:-1],
-        json.dumps(secret)[1:-1],
-        json.dumps(secret, ensure_ascii=False)[1:-1],
+        ascii_json,
+        unicode_json,
+        # JSON's optional "\/": replacing in the JSON-escaped text is exact, since every backslash in it is
+        # already escaped.
+        ascii_json.replace("/", "\\/"),
+        unicode_json.replace("/", "\\/"),
+        quote_plus(ascii_json),
+        quote(ascii_json, safe=""),
     }
-    forms |= {form.replace("/", "\\/") for form in list(forms) if "/" in form}  # JSON's optional "\/"
     return sorted((form for form in forms if form), key=len, reverse=True)
+
+
+def _partial_file(directory: str):
+    """A new, empty temporary file in ``directory`` for a download, as ``(fd, path)``.
+
+    Created with the usual mode for a new file (0666 less the umask), unlike ``tempfile.mkstemp`` (0600), since
+    it is renamed over the download path.
+    """
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0)
+    while True:
+        path = os.path.join(directory or ".", f".zb-download-{token_hex(8)}.part")
+        try:
+            return os.open(path, flags, 0o666), path
+        except FileExistsError:
+            continue
 
 
 def _redact_secrets(text, secrets) -> str:
@@ -609,9 +634,9 @@ class ZeroBounce(_RefusesPickling):
     def _download(self, url: str, params: dict, download_path: str, stream: bool = False) -> ZBGetFileResponse:
         """GET a result file and save it at ``download_path``.
 
-        ``stream=True`` writes it in chunks to a temporary file next to ``download_path`` and moves it into
-        place when complete, so a large file never has to fit in memory and a failed download leaves nothing
-        at ``download_path``.
+        Either way the file is written to a temporary file next to ``download_path`` and moved into place when
+        complete, so a failed download or write leaves no partial file and keeps a file already at
+        ``download_path``. ``stream=True`` writes it in chunks, so a large file never has to fit in memory.
         """
         try:
             response = requests.get(
@@ -635,17 +660,7 @@ class ZeroBounce(_RefusesPickling):
             body_str = body_bytes.decode("utf-8", errors="replace")
             content_type = response.headers.get("Content-Type") or ""
             self._raise_if_download_error(response, body_str, content_type)
-            if dirname:
-                os.makedirs(dirname, exist_ok=True)
-            f = open(download_path, "wb")
-            try:
-                with f:
-                    f.write(body_bytes)
-            except BaseException:
-                # A failed write (a full disk) must not leave a truncated file that reads as the result.
-                with contextlib.suppress(OSError):
-                    os.unlink(download_path)
-                raise
+            self._save_atomically(download_path, dirname, [body_bytes])
             return ZBGetFileResponse({"local_file_path": download_path})
 
         try:
@@ -653,6 +668,27 @@ class ZeroBounce(_RefusesPickling):
         finally:
             response.close()
         return ZBGetFileResponse({"local_file_path": download_path})
+
+    @staticmethod
+    def _save_atomically(download_path: str, dirname: str, chunks) -> None:
+        """Write ``chunks`` to a temporary file next to ``download_path``, then move it into place.
+
+        A failed write (a full disk, a file size limit) removes the temporary file and leaves whatever was
+        at ``download_path`` untouched: no partial file, and an earlier download is neither truncated nor deleted.
+        """
+        if dirname:
+            os.makedirs(dirname, exist_ok=True)
+        fd, partial = _partial_file(dirname)
+        try:
+            with os.fdopen(fd, "wb") as out:
+                for chunk in chunks:
+                    if chunk:
+                        out.write(chunk)
+            os.replace(partial, download_path)
+        except BaseException:
+            with contextlib.suppress(OSError):
+                os.unlink(partial)
+            raise
 
     def _save_streamed(self, response, download_path: str, dirname: str) -> None:
         content_type = response.headers.get("Content-Type") or ""
@@ -678,20 +714,7 @@ class ZeroBounce(_RefusesPickling):
                         break
                 self._raise_if_download_error(response, head.decode("utf-8", errors="replace"), content_type)
 
-            if dirname:
-                os.makedirs(dirname, exist_ok=True)
-            fd, partial = tempfile.mkstemp(dir=dirname or ".", prefix=".zb-download-", suffix=".part")
-            try:
-                with os.fdopen(fd, "wb") as out:
-                    out.write(head)
-                    for chunk in chunks:
-                        if chunk:
-                            out.write(chunk)
-                os.replace(partial, download_path)
-            except BaseException:
-                with contextlib.suppress(OSError):
-                    os.unlink(partial)
-                raise
+            self._save_atomically(download_path, dirname, itertools.chain([head], chunks))
         except RequestException as e:
             error = type(e)(self._redact(e))
         else:

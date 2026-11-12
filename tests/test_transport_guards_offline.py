@@ -7,6 +7,7 @@ The sweeps enumerate every public request method of ``ZeroBounce`` (the HTTPS sw
 import contextlib
 import errno
 import io
+import os
 import socket
 import tempfile
 import threading
@@ -15,7 +16,7 @@ import warnings
 from datetime import timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from unittest import TestCase
+from unittest import TestCase, skipUnless
 from unittest.mock import patch
 
 from requests import Response
@@ -23,6 +24,11 @@ from requests.exceptions import RequestException
 
 from tests import test_standard_parity_offline as parity
 from zerobouncesdk import ZBApiException, ZeroBounce, ZeroBounceWarmup
+
+try:
+    import resource
+except ImportError:  # Windows has no file size limit to set
+    resource = None
 
 KEY = "guard-key-123"
 _BASE_URL_ATTRIBUTES = {
@@ -398,39 +404,82 @@ class ResultFileErrorTest(TestCase):
                         self.assertEqual(caught.exception.status_code, status, name)
                         self.assertFalse(path.exists(), f"{name} saved an HTTP {status} (stream={stream})")
 
-    def test_a_failed_write_leaves_no_partial_file(self):
-        class DiskFull(io.FileIO):
-            def write(self, data):
-                super().write(bytes(data[:10]))
-                raise OSError(errno.ENOSPC, "No space left on device")
+    def _downloads_into(self, folder, existing):
+        """Every download, streamed and not, plus the Warmup CSVs, each into a file already holding ``existing``."""
+        warmup = ZeroBounceWarmup(KEY)
+        calls = {}
+        for name, download in self.downloads.items():
+            for stream in (False, True):
+                calls[f"{name} stream={stream}"] = lambda path, d=download, s=stream: d("f1", path, stream=s)
+        calls["download_seeds"] = warmup.download_seeds
+        calls["download_statistics"] = lambda path: warmup.download_statistics("a@example.com", path)
+        paths = {}
+        for name in calls:
+            paths[name] = folder / f"{name.replace(' ', '-')}.csv"
+            paths[name].write_bytes(existing)
+        return calls, paths
 
-        def disk_full_open(path, mode="r", *args, **kwargs):
-            return DiskFull(path, mode.replace("b", ""))
+    @skipUnless(resource is not None, "needs RLIMIT_FSIZE")
+    def test_a_failed_write_keeps_an_existing_file_and_leaves_no_partial_file(self):
+        # A real write failure: the process may not write files larger than the limit (ulimit -f), so the
+        # write fails with EFBIG part-way through, as on a full disk.
+        csv = b"email,status\n" + b"a@example.com,valid\n" * 10_000
+        calls, paths = self._downloads_into(self.folder, b"keep me\n")
+        soft, hard = resource.getrlimit(resource.RLIMIT_FSIZE)
+        failed = {}
+        with patch("requests.sessions.Session.send", _file_reply(200, csv, "text/csv")):
+            for name, download in calls.items():
+                resource.setrlimit(resource.RLIMIT_FSIZE, (len(csv) // 2, hard))
+                try:
+                    download(str(paths[name]))
+                except OSError as error:
+                    failed[name] = error.errno
+                finally:
+                    resource.setrlimit(resource.RLIMIT_FSIZE, (soft, hard))
+        self.assertEqual(failed, {name: errno.EFBIG for name in calls})
+        for name, path in paths.items():
+            self.assertEqual(path.read_bytes(), b"keep me\n", f"{name} truncated or deleted the existing file")
+        self.assertEqual(sorted(p.name for p in self.folder.iterdir()), sorted(p.name for p in paths.values()))
 
-        csv = b"email,status\n" + b"a@example.com,valid\n" * 100
-        with patch("requests.sessions.Session.send", _file_reply(200, csv, "text/csv")), patch(
-            "zerobouncesdk.zerobouncesdk.open", disk_full_open, create=True
+    @skipUnless(hasattr(os, "geteuid") and os.geteuid() != 0, "root writes into a read-only folder")
+    def test_a_read_only_folder_keeps_the_existing_file(self):
+        folder = self.folder / "read-only"
+        folder.mkdir()
+        calls, paths = self._downloads_into(folder, b"keep me\n")
+        folder.chmod(0o555)
+        self.addCleanup(folder.chmod, 0o755)
+        with patch("requests.sessions.Session.send", _file_reply(200, b"email\na@example.com\n", "text/csv")):
+            for name, download in calls.items():
+                with self.assertRaises(PermissionError, msg=name):
+                    download(str(paths[name]))
+                self.assertEqual(paths[name].read_bytes(), b"keep me\n", name)
+        self.assertEqual(sorted(p.name for p in folder.iterdir()), sorted(p.name for p in paths.values()))
+
+    def test_a_complete_download_replaces_an_existing_file(self):
+        csv = b"email,status\na@example.com,valid\n"
+        calls, paths = self._downloads_into(self.folder, b"old result\n")
+        with patch("requests.sessions.Session.send", _file_reply(200, csv, "text/csv")):
+            for name, download in calls.items():
+                download(str(paths[name]))
+                self.assertEqual(paths[name].read_bytes(), csv, name)
+                if os.name == "posix":  # the usual mode for a new file, not the temporary file's 0600
+                    umask = os.umask(0)
+                    os.umask(umask)
+                    self.assertEqual(paths[name].stat().st_mode & 0o777, 0o666 & ~umask, name)
+        self.assertEqual(sorted(p.name for p in self.folder.iterdir()), sorted(p.name for p in paths.values()))
+
+    def test_a_json_content_type_alone_is_an_error(self):
+        # The body reads as CSV; only the content type says it is a JSON answer. Streamed and not, and Warmup.
+        calls, paths = self._downloads_into(self.folder, b"keep me\n")
+        with patch(
+            "requests.sessions.Session.send", _file_reply(200, b"email,status\na@example.com,valid\n", "application/json")
         ):
-            for name, download in self.downloads.items():
-                path = self.folder / f"{name}.csv"
-                with self.assertRaises(OSError, msg=name) as caught:
-                    download("f1", str(path))
-                self.assertEqual(caught.exception.errno, errno.ENOSPC)
-                self.assertFalse(path.exists(), f"{name} left a partial file")
-
-    def test_a_file_that_cannot_be_opened_is_left_alone(self):
-        path = self.folder / "existing.csv"
-        path.write_bytes(b"keep me\n")
-
-        def refuse(path, mode="r", *args, **kwargs):
-            raise PermissionError(errno.EACCES, "Permission denied", path)
-
-        with patch("requests.sessions.Session.send", _file_reply(200, b"email\na@example.com\n", "text/csv")), patch(
-            "zerobouncesdk.zerobouncesdk.open", refuse, create=True
-        ):
-            with self.assertRaises(PermissionError):
-                self.client.get_file("f1", str(path))
-        self.assertEqual(path.read_bytes(), b"keep me\n")
+            for name, download in calls.items():
+                with self.assertRaises(ZBApiException, msg=name) as caught:
+                    download(str(paths[name]))
+                self.assertEqual(caught.exception.status_code, 200, name)
+                self.assertEqual(paths[name].read_bytes(), b"keep me\n", name)
+        self.assertEqual(sorted(p.name for p in self.folder.iterdir()), sorted(p.name for p in paths.values()))
 
     def test_a_json_error_under_a_csv_content_type_is_not_saved(self):
         # The content type says CSV, but the body is the API's JSON error: only the body tells them apart.

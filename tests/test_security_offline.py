@@ -2,6 +2,7 @@
 
 import json
 import tempfile
+from itertools import product
 from pathlib import Path
 from unittest import TestCase
 from unittest.mock import patch
@@ -219,6 +220,72 @@ class JsonEscapedSecretTest(TestCase):
             (ODD_PASSWORD, lambda: warmup.test_smtp_configuration("s@example.com", ODD_PASSWORD, "pw", "smtp.example.com", 587)),
         ):
             self.assertEqual(self._sweep([("test_smtp_configuration", call)], secret), [])
+
+
+class EverySpellingTest(TestCase):
+    """S4/S7: each spelling of a secret, built here with the encoders themselves, is masked.
+
+    The first secret holds every character an encoding changes; the second a non-ASCII character next to
+    '/' and '"'. Each spelling has a value no other spelling has for one of them, so dropping any one from
+    ``_secret_forms`` fails.
+    """
+
+    SECRETS = ("a b\"/+%&=<>'\\", 'pw\u00e9/"x')
+
+    @staticmethod
+    def spellings(secret):
+        from urllib.parse import quote, quote_plus
+
+        ascii_json = json.dumps(secret)[1:-1]
+        unicode_json = json.dumps(secret, ensure_ascii=False)[1:-1]
+        return {
+            "raw": secret,
+            "URL-encoded, +": quote_plus(secret),
+            "URL-encoded, %20": quote(secret, safe=""),
+            "URL-encoded, / kept": quote(secret),
+            "repr": repr(secret)[1:-1],
+            "JSON": ascii_json,
+            "JSON, non-ASCII as is": unicode_json,
+            "JSON \\/": json.dumps(secret).replace("/", "\\/")[1:-1],
+            "JSON \\/, non-ASCII as is": json.dumps(secret, ensure_ascii=False).replace("/", "\\/")[1:-1],
+            "URL-encoded JSON, +": quote_plus(ascii_json),
+            "URL-encoded JSON, %20": quote(ascii_json, safe=""),
+        }
+
+    def test_each_spelling_is_needed_by_one_secret(self):
+        shared = [
+            label
+            for label in self.spellings(self.SECRETS[0])
+            if all(list(self.spellings(s).values()).count(self.spellings(s)[label]) > 1 for s in self.SECRETS)
+        ]
+        self.assertEqual(shared, [])
+
+    def test_each_spelling_is_masked_as_the_key_and_as_the_smtp_password(self):
+        leaks = []
+        for secret in self.SECRETS:
+            for label, form in self.spellings(secret).items():
+                # Plain text is quoted unless it holds "<>{}[]"; an HTML page by its title.
+                bodies = (
+                    (400, f"rejected: {form}".encode(), "text/plain"),
+                    (200, f"<html><head><title>rejected {form}</title></head></html>".encode(), "text/html"),
+                )
+                calls = {
+                    "key": lambda s=secret: ZeroBounce(s).get_credits(),
+                    "password": lambda s=secret: ZeroBounceWarmup(KEY).test_smtp_configuration(
+                        "a@example.com", "smtp-user-1", s, "smtp.example.com", 587
+                    ),
+                }
+                for (status, body, content_type), (what, call) in product(bodies, calls.items()):
+                    with patch(
+                        "requests.sessions.Session.send",
+                        lambda session, request, **kw: offline._response(status, body, content_type),
+                    ):
+                        with self.assertRaises(ZBApiException, msg=f"{what} {label}") as caught:
+                            call()
+                    error = caught.exception
+                    if form in f"{error}|{error!r}|{error.args!r}|{error.__context__!r}":
+                        leaks.append((what, label, status, secret))
+        self.assertEqual(leaks, [])
 
 
 class PicklingTest(TestCase):
