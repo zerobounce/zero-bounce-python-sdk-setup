@@ -759,3 +759,92 @@ class StrictJsonTest(TestCase):
                     else:
                         accepted.append((name, body))
         self.assertEqual(accepted, [])
+
+
+# tests/fixtures/strict-json-corpus.tsv is a byte-identical copy of
+# sdk-docs/skills/zerobounce-sdk/references/strict-json-corpus.tsv (zerobounce/sdk-docs); refresh it from there.
+_CORPUS = Path(__file__).parent / "fixtures" / "strict-json-corpus.tsv"
+
+
+def strict_json_corpus():
+    """(verdict, body) pairs: each line's second field is a JSON-encoded string holding the exact body."""
+    import json
+
+    rows = []
+    for line in _CORPUS.read_text(encoding="utf-8").splitlines():
+        if line and not line.startswith("#"):
+            verdict, encoded = line.split("\t", 1)
+            rows.append((verdict, json.loads(encoded).encode("utf-8")))
+    return rows
+
+
+class StrictJsonCorpusTest(TestCase):
+    """E7: every JSON call rejects every REJECT body of the shared corpus (an API error with status 200) and
+    rejects no ACCEPT body as an API error.
+
+    Downloads are not JSON calls (any JSON body is an error there). An empty 200 (zero bytes) is the documented
+    empty success of the Warmup calls and of ``delete_inbox_placement_test`` (check E8), so those skip that one
+    body; a blank body is never empty.
+    """
+
+    DOWNLOADS = {
+        "get_file", "scoring_get_file", "email_finder_get_file", "domain_search_get_file",
+        "warmup.download_seeds", "warmup.download_statistics",
+    }
+
+    def _calls(self):
+        out = str(Path(tempfile.mkdtemp()) / "out.csv")
+        client = ZeroBounce(KEY)
+        warmup = ZeroBounceWarmup(KEY)
+        calls = [(name, call) for name, variants in client_calls(client, out).items() for call in variants]
+        calls += [(f"warmup.{name}", lambda c=call: c(warmup)) for name, call in warmup_calls(out).items()]
+        return [(name, call) for name, call in calls if name not in self.DOWNLOADS]
+
+    @staticmethod
+    def _empty_success(name, body):
+        return body == b"" and (name.startswith("warmup.") or name == "delete_inbox_placement_test")
+
+    def test_the_corpus_has_both_verdicts(self):
+        verdicts = [verdict for verdict, _ in strict_json_corpus()]
+        self.assertEqual(set(verdicts), {"REJECT", "ACCEPT"})
+        self.assertGreater(verdicts.count("REJECT"), 30)
+
+    def test_every_json_call_rejects_every_reject_body(self):
+        calls = self._calls()
+        wrong = []
+        for verdict, body in strict_json_corpus():
+            if verdict != "REJECT":
+                continue
+            with patch("requests.sessions.Session.send", _file_reply(200, body, "application/json")):
+                for name, call in calls:
+                    if self._empty_success(name, body):
+                        continue
+                    try:
+                        _quiet(call)
+                    except ZBApiException as error:
+                        if error.status_code != 200:
+                            wrong.append((name, body, error.status_code))
+                    except Exception as error:  # noqa: BLE001 - any other error is a wrong answer too
+                        wrong.append((name, body, type(error).__name__))
+                    else:
+                        wrong.append((name, body, "accepted"))
+        self.assertEqual(wrong, [])
+
+    def test_no_json_call_rejects_an_accept_body_as_invalid(self):
+        calls = self._calls()
+        wrong = []
+        for verdict, body in strict_json_corpus():
+            if verdict != "ACCEPT":
+                continue
+            with patch("requests.sessions.Session.send", _file_reply(200, body, "application/json")):
+                for name, call in calls:
+                    try:
+                        _quiet(call)
+                    except ZBApiException as error:
+                        # A body the client could not parse is the only API error a 2xx without an error field
+                        # gives; a result of the wrong shape is a different error.
+                        if error.status_code == 200:
+                            wrong.append((name, body, str(error)))
+                    except Exception:  # noqa: BLE001 - "0" is not a validate result, but it parsed
+                        pass
+        self.assertEqual(wrong, [])

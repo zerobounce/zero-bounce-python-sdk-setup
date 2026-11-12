@@ -319,3 +319,128 @@ class PicklingTest(TestCase):
             for clone in (copy.copy, copy.deepcopy):
                 with self.assertRaises(TypeError):
                     clone(client)
+
+
+# S4/S7: redaction is closed under encoding (standard.md). The test's own decoder, independent of the SDK's.
+FUZZ_SECRET = "k y\"/\\+%&=<>'z"
+
+_FUZZ_ENCODERS = {
+    "URL %20": lambda text: __import__("urllib.parse").parse.quote(text, safe=""),
+    "URL +": lambda text: __import__("urllib.parse").parse.quote_plus(text),
+    "JSON": lambda text: json.dumps(text)[1:-1],
+    "JSON \\/": lambda text: json.dumps(text)[1:-1].replace("/", "\\/"),
+}
+
+
+def _test_json_unescape(text):
+    import re
+
+    simple = {'"': '"', "\\": "\\", "/": "/", "b": "\b", "f": "\f", "n": "\n", "r": "\r", "t": "\t"}
+    return re.sub(
+        r'\\(u[0-9a-fA-F]{4}|["\\/bfnrt])',
+        lambda m: chr(int(m.group(1)[1:], 16)) if m.group(1)[0] == "u" else simple[m.group(1)],
+        text,
+    )
+
+
+def _views(text, layers=3):
+    from urllib.parse import unquote, unquote_plus
+
+    decoders = (unquote, unquote_plus, lambda t: t.replace("+", " "), _test_json_unescape)
+    views = {text}
+    frontier = {text}
+    for _ in range(layers):
+        frontier = {decode(view) for view in frontier for decode in decoders} - views
+        views |= frontier
+    return views
+
+
+def _error_texts(error, seen=None):
+    """The message, repr, args, every attribute and the whole cause/context chain of ``error``."""
+    seen = seen if seen is not None else set()
+    if error is None or id(error) in seen:
+        return []
+    seen.add(id(error))
+    texts = [str(error), repr(error), repr(error.args), repr(vars(error))]
+    texts += _error_texts(error.__cause__, seen) + _error_texts(error.__context__, seen)
+    return texts
+
+
+def _fuzz_forms(secret, seed=8259, count=120):
+    """Every sequence of up to three encodings of ``secret``, plus random ones wrapped in random text."""
+    import random
+
+    names = list(_FUZZ_ENCODERS)
+    sequences = [list(seq) for depth in (1, 2, 3) for seq in product(names, repeat=depth)]
+    rng = random.Random(seed)
+    sequences += [[rng.choice(names) for _ in range(rng.randint(1, 3))] for _ in range(count)]
+    for sequence in sequences:
+        form = secret
+        for name in sequence:
+            form = _FUZZ_ENCODERS[name](form)
+        yield " > ".join(sequence), form
+
+
+class EncodingClosureFuzzTest(TestCase):
+    """S4/S7: a secret under any composition of up to three encodings never survives in any decoded view of an
+    error: message, args, attributes or cause chain."""
+
+    BODIES = (
+        lambda form: (400, f"rejected: {form}".encode(), "text/plain"),
+        lambda form: (200, f'{{"error": "Invalid API key {form}"}}'.encode(), "application/json"),
+        lambda form: (200, f'{{"success": false, "message": "rejected {form}"}}'.encode(), "application/json"),
+        lambda form: (400, f'{{"message": "bad request {form}"}}'.encode(), "application/json"),
+        lambda form: (200, f"<html><title>denied {form}</title></html>".encode(), "text/html"),
+    )
+
+    def _leaks(self, secret, calls):
+        import random
+
+        from tests.test_transport_guards_offline import _quiet
+
+        rng = random.Random(7)
+        leaks = []
+        for label, form in _fuzz_forms(secret):
+            status, body, content_type = rng.choice(self.BODIES)(form)
+            with patch(
+                "requests.sessions.Session.send",
+                lambda session, request, **kw: offline._response(status, body, content_type),
+            ):
+                for name, call in calls:
+                    try:
+                        _quiet(call)
+                    except Exception as error:  # noqa: BLE001 - every error is inspected
+                        if any(secret in view for text in _error_texts(error) for view in _views(text)):
+                            leaks.append((name, label, status))
+        return leaks
+
+    def test_the_api_key_never_survives_any_encoding(self):
+        from tests.test_transport_guards_offline import client_calls
+
+        client = ZeroBounce(FUZZ_SECRET)
+        out = str(Path(tempfile.mkdtemp()) / "out.csv")
+        calls = [(name, call) for name, variants in client_calls(client, out).items() for call in variants[:1]]
+        self.assertEqual(self._leaks(FUZZ_SECRET, calls), [])
+
+    def test_the_warmup_key_never_survives_any_encoding(self):
+        from tests.test_transport_guards_offline import warmup_calls
+
+        warmup = ZeroBounceWarmup(FUZZ_SECRET)
+        out = str(Path(tempfile.mkdtemp()) / "out.csv")
+        calls = [(name, lambda c=call: c(warmup)) for name, call in warmup_calls(out).items()]
+        self.assertEqual(self._leaks(FUZZ_SECRET, calls), [])
+
+    def test_smtp_credentials_never_survive_any_encoding(self):
+        warmup = ZeroBounceWarmup(KEY)
+        username = "smtp" + FUZZ_SECRET
+        calls = [
+            ("password", lambda: warmup.test_smtp_configuration("s@example.com", "user", FUZZ_SECRET, "smtp.example.com", 587)),
+        ]
+        self.assertEqual(self._leaks(FUZZ_SECRET, calls), [])
+        calls = [
+            ("username", lambda: warmup.test_smtp_configuration("s@example.com", username, "pw", "smtp.example.com", 587)),
+        ]
+        self.assertEqual(self._leaks(username, calls), [])
+
+    def test_text_without_a_secret_is_kept(self):
+        self.assertEqual(_redact_secrets("Invalid email a+b%20c\\/d", [FUZZ_SECRET]), "Invalid email a+b%20c\\/d")

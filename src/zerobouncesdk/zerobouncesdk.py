@@ -7,7 +7,7 @@ from datetime import date, timedelta
 from secrets import token_hex
 import os
 from typing import BinaryIO, List, Optional, Union
-from urllib.parse import quote, quote_plus, urlsplit
+from urllib.parse import quote, quote_plus, unquote, unquote_plus, urlsplit
 
 import requests
 from requests.exceptions import RequestException
@@ -251,12 +251,56 @@ def _partial_file(directory: str):
             continue
 
 
+# The message an error carries instead of text that still holds a secret in an encoding no spelling covers.
+CREDENTIAL_OMITTED_MESSAGE = (
+    "ZeroBounce returned an error; the response body was omitted because it contained a credential."
+)
+
+_JSON_ESCAPE = re.compile(r'\\(?:u([0-9a-fA-F]{4})|(["\\/bfnrt]))')
+_JSON_SIMPLE_ESCAPES = {'"': '"', "\\": "\\", "/": "/", "b": "\b", "f": "\f", "n": "\n", "r": "\r", "t": "\t"}
+
+
+def _json_unescape(text: str) -> str:
+    """``text`` with its JSON string escapes decoded (``\\/`` and ``\\uXXXX`` included); other text as is."""
+    decoded = _JSON_ESCAPE.sub(
+        lambda match: chr(int(match.group(1), 16)) if match.group(1) else _JSON_SIMPLE_ESCAPES[match.group(2)], text
+    )
+    try:
+        # Surrogate pairs from \\uXXXX\\uXXXX into one character.
+        return decoded.encode("utf-16", "surrogatepass").decode("utf-16")
+    except UnicodeError:
+        return decoded
+
+
+_DECODERS = (unquote, unquote_plus, lambda text: text.replace("+", " "), _json_unescape)
+
+
+def _decoded_views(text: str, layers: int = 3) -> set:
+    """``text`` and every view of it after up to ``layers`` decodings (URL, ``+`` as space, JSON), in any order."""
+    views = {text}
+    frontier = {text}
+    for _ in range(layers):
+        frontier = {decode(view) for view in frontier for decode in _DECODERS} - views
+        if not frontier:
+            break
+        views |= frontier
+    return views
+
+
 def _redact_secrets(text, secrets) -> str:
-    """``text`` with every form of every secret masked."""
+    """``text`` with every form of every secret masked.
+
+    Then closed under encoding: if any decoded view of what is left (URL, ``+`` as space, JSON, up to three
+    layers in any order) still holds a secret, the whole text is replaced by a fixed message.
+    """
     text = str(text)
+    secrets = [secret for secret in secrets if secret]
     for secret in secrets:
         for form in _secret_forms(secret):
             text = text.replace(form, "***")
+    views = _decoded_views(text)
+    if any(secret in view for secret in secrets for view in views):
+        return CREDENTIAL_OMITTED_MESSAGE
     return text
 
 
@@ -601,7 +645,8 @@ class ZeroBounce(_RefusesPickling):
         if error is not None:
             # Raised outside the except block: the original, unredacted error must not be its __context__.
             raise error
-        if empty_is_success and 200 <= response.status_code < 300 and not _response_text(response).strip():
+        # Empty means zero bytes: a blank body is not JSON, and not the documented empty success either.
+        if empty_is_success and 200 <= response.status_code < 300 and _response_text(response) == "":
             return None
         return self._read_json_payload(response)
 

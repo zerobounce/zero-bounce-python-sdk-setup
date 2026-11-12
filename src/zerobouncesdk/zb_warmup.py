@@ -104,10 +104,13 @@ class ZeroBounceWarmup(_RefusesPickling):
         return response
 
     def _json(self, method: str, path: str, *, params=None, json=None, secrets=()):
-        """JSON payload of a 200, or None for the documented empty successes (204, empty 200)."""
+        """JSON payload of a 200, or None for the documented empty successes (204, empty 200).
+
+        Empty means zero bytes: a blank body (spaces, a newline) is not JSON and is an error with its status.
+        """
         response = self._send(method, path, params=params, json=json, secrets=secrets)
         body = _response_text(response)
-        if response.status_code == 204 or not body.strip():
+        if response.status_code == 204 or body == "":
             return None
         content_type = response.headers.get("Content-Type", "")
         if _looks_like_html(body, content_type):
