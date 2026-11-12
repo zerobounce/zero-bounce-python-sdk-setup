@@ -15,6 +15,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `ZeroBounceWarmup` errors reported on a 200 carry `status_code` 200: an HTML page (such as a proxy's "Access denied" page), a body that is not valid JSON, and a JSON body or empty body from `download_seeds` or `download_statistics`. Up to 3.0.1 their `status_code` was `None`.
 - `ZeroBounceWarmup.add_sending_account` parses `ignore_conflict` strictly, as `ZeroBounce` parses its boolean options: `True`/`False`, `"true"`/`"false"` (any case) and `1`/`0` are accepted, and anything else raises `ZBClientException("Invalid parameter: ignore_conflict must be true or false")` before a request is sent. Up to 3.0.1 the value went through `bool()`, so `ignore_conflict="false"` sent `true`.
 
+### Security
+
+- `validate_batch` redacts the API key in its account-level error (an `"email_address": "all"` entry such as "Invalid API key <key>"), as every other error is redacted. 3.0.1 raised that text unchanged.
+- A body that is not valid JSON no longer keeps the JSON parser's error, which quotes the body (and any key in it), as the `__context__` of the `ZBApiException` raised for it, on `ZeroBounce` and `ZeroBounceWarmup`. Up to 3.0.1 the error was raised with `from None`, which hides the original from tracebacks but leaves it on `__context__`.
+
 ## [3.0.1] - 2026-11-11
 
 ### Fixed

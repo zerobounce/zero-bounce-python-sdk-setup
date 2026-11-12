@@ -119,9 +119,11 @@ class ZeroBounceWarmup:
         try:
             return response.json()
         except ValueError:
-            raise ZBApiException(
-                self._redact(_message_from_body(body, response.status_code), secrets), status_code=response.status_code
-            ) from None
+            pass
+        # Raised outside the except block: the parser's error quotes the body, so it must not be the __context__.
+        raise ZBApiException(
+            self._redact(_message_from_body(body, response.status_code), secrets), status_code=response.status_code
+        )
 
     def _csv(self, path: str, params=None, download_path: Optional[str] = None) -> str:
         response = self._send("GET", path, params=params)
