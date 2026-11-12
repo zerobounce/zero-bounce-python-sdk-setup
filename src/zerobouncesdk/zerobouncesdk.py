@@ -477,9 +477,21 @@ class ZeroBounce:
         )
 
     def _request_json(
-        self, method: str, url: str, *, params=None, data=None, files=None, json=None, bearer: bool = False
+        self,
+        method: str,
+        url: str,
+        *,
+        params=None,
+        data=None,
+        files=None,
+        json=None,
+        bearer: bool = False,
+        empty_is_success: bool = False,
     ):
-        """``bearer`` sends the key as ``Authorization: Bearer`` instead of an ``api_key`` parameter."""
+        """``bearer`` sends the key as ``Authorization: Bearer`` instead of an ``api_key`` parameter.
+
+        ``empty_is_success`` returns None for a 2xx with an empty body (204 No Content) instead of raising.
+        """
         self._checked_url(url)
         if params is None:
             params = {}
@@ -508,6 +520,8 @@ class ZeroBounce:
         if error is not None:
             # Raised outside the except block: the original, unredacted error must not be its __context__.
             raise error
+        if empty_is_success and 200 <= response.status_code < 300 and not _response_text(response).strip():
+            return None
         return self._read_json_payload(response)
 
     def _send_bulk_root_multipart(
@@ -584,8 +598,15 @@ class ZeroBounce:
             self._raise_if_download_error(response, body_str, content_type)
             if dirname:
                 os.makedirs(dirname, exist_ok=True)
-            with open(download_path, "wb") as f:
-                f.write(body_bytes)
+            f = open(download_path, "wb")
+            try:
+                with f:
+                    f.write(body_bytes)
+            except BaseException:
+                # A failed write (a full disk) must not leave a truncated file that reads as the result.
+                with contextlib.suppress(OSError):
+                    os.unlink(download_path)
+                raise
             return ZBGetFileResponse({"local_file_path": download_path})
 
         try:
@@ -1949,9 +1970,14 @@ class ZeroBounce:
         return self._request_json("GET", f"{_root(self.INBOX_PLACEMENT_BASE_URL)}/tests", params=params, bearer=True)
 
     def delete_inbox_placement_test(self, test_id: Union[int, str]):
-        """Delete a finished test (DELETE /api/ipt/test/{id}). A running test cannot be deleted."""
+        """Delete a finished test (DELETE /api/ipt/test/{id}). A running test cannot be deleted.
+
+        Returns the API's JSON answer, or None when it answers with an empty 2xx (204 No Content).
+        """
         path = self._ipt_test_path(test_id)
-        return self._request_json("DELETE", f"{_root(self.INBOX_PLACEMENT_BASE_URL)}/test/{path}", bearer=True)
+        return self._request_json(
+            "DELETE", f"{_root(self.INBOX_PLACEMENT_BASE_URL)}/test/{path}", bearer=True, empty_is_success=True
+        )
 
     def get_inbox_placement_webhook(self):
         """The webhook URL saved on this API key (GET /api/ipt/webhook); empty when none is set."""
