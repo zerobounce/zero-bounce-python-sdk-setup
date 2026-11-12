@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- `get_file` and the other result-file downloads without `stream=True` delete the file at `download_path` when writing it fails (for example on a full disk) before raising. Up to 3.0.1 the error was raised but the truncated file stayed behind, where it could be read as the result.
+- `ZeroBounceWarmup.download_seeds` and `download_statistics` with a `download_path` delete that file when writing it fails (for example on a full disk) before raising. Up to 3.0.1 the truncated CSV stayed behind.
+- `delete_inbox_placement_test` returns `None` when the API answers with an empty 2xx (204 No Content), as the Go SDK does. Up to 3.0.1 it raised `ZBApiException` ("Empty response"). A JSON answer is returned as before; the other Inbox Placement calls still treat an empty body as an error.
+
 ## [3.0.1] - 2026-11-11
 
 ### Fixed

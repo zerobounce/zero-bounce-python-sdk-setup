@@ -5,6 +5,7 @@ key, and it authenticates with an ``API-Key`` header instead of an ``api_key`` p
 ``ZeroBounceWarmup`` with a Warmup API key; ``ZeroBounce`` stays for the validation API key.
 """
 
+import contextlib
 import os
 import re
 from datetime import date, timedelta
@@ -121,8 +122,15 @@ class ZeroBounceWarmup:
             directory = os.path.dirname(download_path)
             if directory:
                 os.makedirs(directory, exist_ok=True)
-            with open(download_path, "wb") as handle:
-                handle.write(response.content)
+            handle = open(download_path, "wb")
+            try:
+                with handle:
+                    handle.write(response.content)
+            except BaseException:
+                # A failed write (a full disk) must not leave a truncated file that reads as the CSV.
+                with contextlib.suppress(OSError):
+                    os.unlink(download_path)
+                raise
         return body
 
     # -- argument checks ----------------------------------------------------------------------
