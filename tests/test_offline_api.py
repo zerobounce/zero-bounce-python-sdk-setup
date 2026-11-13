@@ -107,6 +107,11 @@ def _parse_multipart(content_type, body):
     return form, files
 
 
+def credits_for(key):
+    """A credit balance (an integer string, as documented) that differs per key, so answers can be told apart."""
+    return str(int.from_bytes(key.encode(), "big"))
+
+
 class FakeTransport:
     def __init__(self):
         self.requests = []
@@ -192,7 +197,7 @@ class FakeTransport:
             # Replaced below with CSV bytes. Marker keeps the branch obvious.
             return {"__csv__": key}
         if path.endswith("/getcredits"):
-            return {"Credits": key}
+            return {"Credits": credits_for(key)}
         if path.endswith("/getapiusage"):
             return {"total": 1, "start_date": "1/1/2024", "end_date": "1/2/2024", **echo}
         if path.endswith("/activity"):
@@ -825,7 +830,7 @@ class OfflineApiTest(TestCase):
                     self.assertNotIn(other, blob)
         self.assertEqual(len(seen), 12)
         for key, credits, echo in results:
-            self.assertEqual(credits, key)
+            self.assertEqual(credits, credits_for(key))
             self.assertEqual(echo, key)
             for other, _, _ in results:
                 if other != key:

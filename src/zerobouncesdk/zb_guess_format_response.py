@@ -6,7 +6,7 @@ from . import (
     ZBValidateStatus,
     ZBValidateSubStatus,
 )
-from ._zb_response import ZBResponse
+from ._zb_response import ARRAY, STRING, ZBResponse
 from ._zb_utils import safe_enum_convert
 
 
@@ -18,6 +18,8 @@ class ZBDomainFormat(ZBResponse):
     format: str = None
 
     confidence: ZBConfidence = None
+
+    _FIELD_TYPES = {"format": STRING, "confidence": STRING}
 
     def __init__(self, data=None):
         super().__init__(data)
@@ -48,6 +50,12 @@ class ZBGuessFormatResponse(ZBResponse):
 
     other_domain_formats: List[ZBDomainFormat] = []
 
+    _FIELD_TYPES = {
+        "email": STRING, "domain": STRING, "format": STRING, "status": STRING, "sub_status": STRING,
+        "confidence": STRING, "failure_reason": STRING, "did_you_mean": STRING, "other_domain_formats": ARRAY,
+    }
+    _ITEMS = {"other_domain_formats": ZBDomainFormat}
+
     def __init__(self, data):
         super().__init__(data)
         if "Message" in data or "message" in data:
@@ -59,5 +67,5 @@ class ZBGuessFormatResponse(ZBResponse):
         self.confidence = safe_enum_convert(ZBConfidence, self.confidence, "confidence", lowercase=True)
 
         self.other_domain_formats = [
-            ZBDomainFormat(df_data) for df_data in data.get("other_domain_formats", [])
+            ZBDomainFormat(df_data) for df_data in (data.get("other_domain_formats") or [])
         ]

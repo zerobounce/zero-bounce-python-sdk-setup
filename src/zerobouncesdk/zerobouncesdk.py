@@ -12,6 +12,7 @@ from urllib.parse import quote, quote_plus, unquote, unquote_plus, urlsplit
 import requests
 from requests.exceptions import RequestException
 
+from ._zb_response import ZBFieldTypeError
 from .zb_get_file_options import ZBGetFileOptions
 from . import (
     ZBApiException,
@@ -573,6 +574,21 @@ class ZeroBounce(_RefusesPickling):
         TypeError or AttributeError the response class would raise.
         """
         payload = self._read_json_payload(response, getattr(response_class, "_MESSAGE_ONLY_IS_ERROR", False), shape)
+        # Field types are part of the shape: a field of another JSON type (or a required one missing) is an API
+        # error with the HTTP status, never a coerced or defaulted result. The text names the field only.
+        check_shape = getattr(response_class, "check_shape", None)
+        if check_shape is not None and isinstance(payload, dict):
+            try:
+                check_shape(payload)
+            except ZBFieldTypeError as error:
+                problem = str(error)
+            else:
+                problem = None
+            if problem is not None:
+                raise ZBApiException(
+                    f"ZeroBounce returned JSON of an unexpected shape for this call: {problem}.",
+                    status_code=getattr(response, "status_code", 0) or 0,
+                )
         try:
             return response_class(payload)
         except (TypeError, AttributeError, ValueError, KeyError):

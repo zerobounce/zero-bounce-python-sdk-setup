@@ -1,5 +1,5 @@
 from . import ZBApiException, ZBConfidence
-from ._zb_response import ZBResponse
+from ._zb_response import STRING, ZBResponse
 from ._zb_utils import safe_enum_convert
 
 
@@ -26,6 +26,11 @@ class ZBFindEmailFormatResponse(ZBResponse):
 
     failure_reason: str = None
     """Reason for failure if the operation was unsuccessful."""
+
+    _FIELD_TYPES = {
+        "email": STRING, "email_confidence": STRING, "domain": STRING, "company_name": STRING,
+        "did_you_mean": STRING, "failure_reason": STRING,
+    }
 
     def __init__(self, data):
         super().__init__(data)

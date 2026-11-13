@@ -546,3 +546,26 @@ class DecodeStepsTest(TestCase):
         for label, body in bodies.items():
             secrets = ["zq+x/ZQXMARK"] if label.startswith("a literal +") else [secret]
             self.assertEqual(_redact_secrets("rejected " + body, secrets), CREDENTIAL_OMITTED_MESSAGE, label)
+
+    def test_every_utf8_sequence_length_is_decoded(self):
+        """%-decoding reads UTF-8: a 2-, 3- and 4-byte character spelled as lower-case %xx (a spelling no mask
+        form covers) is still found."""
+        from zerobouncesdk.zerobouncesdk import CREDENTIAL_OMITTED_MESSAGE
+
+        for length, char in ((2, "\u00e9"), (3, "\u20ac"), (4, "\U0001F600")):
+            self.assertEqual(len(char.encode()), length)
+            secret = "zq" + char + "ZQXMARK"
+            for body in (self._lower_hex(secret), "zq" + self._lower_hex(char) + "ZQXMARK"):
+                self.assertEqual(_redact_secrets("rejected " + body, [secret]), CREDENTIAL_OMITTED_MESSAGE, length)
+            # The same through + as space (unquote_plus).
+            spaced = "zq " + char + "ZQXMARK"
+            body = "zq+" + self._lower_hex(char) + "ZQXMARK"
+            self.assertEqual(_redact_secrets("rejected " + body, [spaced]), CREDENTIAL_OMITTED_MESSAGE, length)
+
+    def test_plus_as_space_alone_is_a_decode_step(self):
+        """A secret holding a literal %xx, echoed with only its space turned into +, is found only by reading +
+        as a space without %-decoding."""
+        from zerobouncesdk.zerobouncesdk import CREDENTIAL_OMITTED_MESSAGE
+
+        secret = "zq x%41ZQXMARK"
+        self.assertEqual(_redact_secrets("rejected zq+x%41ZQXMARK", [secret]), CREDENTIAL_OMITTED_MESSAGE)

@@ -61,10 +61,12 @@ class ZeroBounceTestCase(BaseTestCase):
         self.assertEqual(response.credits, "12345")
 
     def test_credits_handles_missing_credits_key(self):
-        """API may omit Credits key or return null; client should not crash."""
-        self.requests_mock.get.return_value = MockResponse({})
-        response = self.zero_bounce_client.get_credits()
-        self.assertIsNone(response.credits)
+        """A missing or null Credits is the wrong shape for this call: an API error with status 200, not None."""
+        for body in ({}, {"Credits": None}):
+            self.requests_mock.get.return_value = MockResponse(body)
+            with self.assertRaises(ZBApiException) as cm:
+                self.zero_bounce_client.get_credits()
+            self.assertEqual(cm.exception.status_code, 200)
 
     def test_response_contains_error(self):
         self.requests_mock.get.return_value = MockResponse({

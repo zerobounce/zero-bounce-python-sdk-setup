@@ -931,6 +931,42 @@ class WrongShapeSweepTest(TestCase):
             self.assertEqual(ZeroBounce(KEY).list_s3files(), [])
 
 
+class DeadKeySweepTest(TestCase):
+    """E2: a 200 dead-key body ({"error"}, {"error_message"}, {"Error"}, no "success") is an API error with status
+    200 on every call of ``ZeroBounce``, the sendfile-family uploads and the downloads included: never a result."""
+
+    BODIES = (
+        b'{"error":"Invalid API key or your account ran out of credits"}',
+        b'{"error_message":"Invalid API key"}',
+        b'{"Error":"Invalid API key or your account ran out of credits"}',
+    )
+    UPLOADS = {
+        "send_file", "send_file_stream", "scoring_send_file", "scoring_send_file_stream", "send_email_finder_file",
+        "send_email_finder_file_stream", "send_domain_search_file", "send_domain_search_file_stream",
+        "send_list_evaluator_file", "send_list_evaluator_file_stream",
+    }
+
+    def test_every_call_reports_a_dead_key_with_status_200(self):
+        out = str(Path(tempfile.mkdtemp()) / "out.csv")
+        calls = client_calls(ZeroBounce(KEY), out)
+        self.assertLessEqual(self.UPLOADS, set(calls))
+        wrong = []
+        for body in self.BODIES:
+            for name, variants in calls.items():
+                for call in variants:
+                    with patch("requests.sessions.Session.send", _file_reply(200, body, "application/json")):
+                        try:
+                            result = _quiet(call)
+                        except ZBApiException as error:
+                            if error.status_code != 200 or "Invalid API key" not in str(error):
+                                wrong.append((name, body, error.status_code, str(error)))
+                        except Exception as error:  # noqa: BLE001 - a raw language error is a wrong answer
+                            wrong.append((name, body, type(error).__name__))
+                        else:
+                            wrong.append((name, body, "accepted", result))
+        self.assertEqual(wrong, [])
+
+
 class JsonDepthTest(TestCase):
     """E7: a body nested deeper than the parser's recursion limit is an API error with status 200 on every call,
     downloads and Warmup included, not a RecursionError. (Python 3.14's parser has no such limit and parses the

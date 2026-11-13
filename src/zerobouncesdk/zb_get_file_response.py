@@ -7,3 +7,6 @@ class ZBGetFileResponse(ZBFileResponse):
     success: bool = True
 
     local_file_path: str = None
+
+    # Built by the SDK from the downloaded file, never from JSON.
+    _SDK_FIELDS = ("local_file_path",)

@@ -1,4 +1,4 @@
-from ._zb_response import ZBResponse
+from ._zb_response import FLAG, NUMBER, STRING, ZBResponse
 
 
 class ZBListEvaluatorResponse(ZBResponse):
@@ -30,3 +30,9 @@ class ZBListEvaluatorResponse(ZBResponse):
     total_risky_percentage: float = None
 
     error_message: str = None
+
+    _FIELD_TYPES = {
+        "file_id": STRING, "status": STRING, "progress": NUMBER, "invalid_percentage": NUMBER,
+        "catch_all_percentage": NUMBER, "activity_data_percentage": NUMBER, "abuse": FLAG, "do_not_mail": FLAG,
+        "spam_trap": FLAG, "total_risky_percentage": NUMBER, "error_message": STRING,
+    }

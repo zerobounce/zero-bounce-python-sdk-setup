@@ -1,6 +1,6 @@
 from typing import List
 
-from ._zb_response import ZBResponse
+from ._zb_response import ARRAY, STRING, ZBResponse
 from .zb_validate_response import ZBValidateResponse
 
 
@@ -13,6 +13,8 @@ class ZBValidateBatchError(ZBResponse):
 
     email_address: str = None
 
+    _FIELD_TYPES = {"error": STRING, "email_address": STRING}
+
 
 class ZBValidateBatchResponse(ZBResponse):
     """This is the response for the POST /validatebatch request."""
@@ -23,6 +25,9 @@ class ZBValidateBatchResponse(ZBResponse):
     errors: List[ZBValidateBatchError] = None
     """An Array of errors encountered, if any"""
 
+    _FIELD_TYPES = {"email_batch": ARRAY, "errors": ARRAY}
+    _ITEMS = {"email_batch": ZBValidateBatchEmail, "errors": ZBValidateBatchError}
+
     def __init__(self, data):
-        self.email_batch = [ZBValidateBatchEmail(email) for email in data.get("email_batch", [])]
-        self.errors = [ZBValidateBatchError(error) for error in data.get("errors", [])]
+        self.email_batch = [ZBValidateBatchEmail(email) for email in (data.get("email_batch") or [])]
+        self.errors = [ZBValidateBatchError(error) for error in (data.get("errors") or [])]

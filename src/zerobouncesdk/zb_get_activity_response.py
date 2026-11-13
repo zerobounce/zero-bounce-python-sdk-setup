@@ -1,4 +1,4 @@
-from ._zb_response import ZBResponse
+from ._zb_response import FLAG, STRING, ZBResponse
 from ._zb_utils import parse_bool
 
 
@@ -12,6 +12,8 @@ class ZBGetActivityResponse(ZBResponse):
 
     active_first_seen: str = None
     """First date activity was seen (YYYY-MM-DD); None when nothing was found."""
+
+    _FIELD_TYPES = {"found": FLAG, "active_in_days": STRING, "active_first_seen": STRING}
 
     def __init__(self, data=None):
         super().__init__(data)

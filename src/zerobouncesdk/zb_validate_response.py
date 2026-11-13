@@ -1,7 +1,7 @@
 from datetime import datetime
 
 from . import ZBValidateStatus, ZBValidateSubStatus
-from ._zb_response import ZBResponse
+from ._zb_response import FLAG, STRING, ZBResponse
 from ._zb_utils import parse_bool, parse_datetime, safe_enum_convert
 
 
@@ -95,6 +95,26 @@ class ZBValidateResponse(ZBResponse):
     raw_sub_status: str = None
     """``sub_status`` exactly as the API sent it, kept when it is a value this SDK version does not know
     (``sub_status`` is then None)."""
+
+    _FIELD_TYPES = {
+        "address": STRING, "status": STRING, "sub_status": STRING, "account": STRING, "domain": STRING,
+        "did_you_mean": STRING, "domain_age_days": STRING, "active_in_days": STRING, "active_first_seen": STRING,
+        "free_email": FLAG, "mx_found": FLAG, "mx_record": STRING, "smtp_provider": STRING,
+        "catchall_domain": FLAG, "firstname": STRING, "lastname": STRING, "gender": STRING, "city": STRING,
+        "region": STRING, "zipcode": STRING, "country": STRING, "processed_at": STRING,
+        "domain_website_exists": STRING, "domain_registrant_company_name": STRING, "message": STRING,
+        "Message": STRING,
+    }
+    _SDK_FIELDS = ("raw_status", "raw_sub_status")
+
+    @classmethod
+    def _required_fields(cls, data):
+        # The greylist answer {"Message": "..."} is a result without an address or a status.
+        if "address" not in data and "status" not in data and (
+            isinstance(data.get("Message"), str) or isinstance(data.get("message"), str)
+        ):
+            return ()
+        return ("address", "status")
 
     def __init__(self, data):
         super().__init__(data)

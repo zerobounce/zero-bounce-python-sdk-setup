@@ -116,7 +116,7 @@ class StreamedDownloadTest(TestCase):
 class RegionalBaseUrlTest(TestCase):
     def setUp(self):
         def send(session, request, **kwargs):
-            return _streamed(200, json.dumps({"success": True, "file_status": "Complete"}).encode(), "application/json")
+            return _streamed(200, json.dumps({"success": True, "file_status": "Complete", "Credits": "5"}).encode(), "application/json")
 
         patcher = patch("requests.sessions.Session.send", send)
         patcher.start()

@@ -1,4 +1,4 @@
-from ._zb_response import ZBResponse
+from ._zb_response import INT, STRING, ZBResponse
 
 
 class ZBScoreEmailResponse(ZBResponse):
@@ -6,3 +6,5 @@ class ZBScoreEmailResponse(ZBResponse):
 
     email: str = None
     score: int = None
+
+    _FIELD_TYPES = {"email": STRING, "score": INT}

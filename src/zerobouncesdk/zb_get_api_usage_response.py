@@ -1,6 +1,6 @@
 from datetime import date, datetime
 
-from ._zb_response import ZBResponse
+from ._zb_response import INT, STRING, ZBResponse
 from ._zb_utils import parse_datetime
 
 _DATE_FORMATS = ("%m/%d/%Y", "%Y/%m/%d", "%Y-%m-%d")
@@ -132,3 +132,10 @@ class ZBGetApiUsageResponse(ZBResponse):
         for name in ("start_date", "end_date"):
             parsed = parse_datetime(getattr(self, name), _DATE_FORMATS, name)
             setattr(self, name, parsed.date() if isinstance(parsed, datetime) else parsed)
+
+
+# Every counter is a JSON integer; the two dates are strings.
+ZBGetApiUsageResponse._FIELD_TYPES = {
+    name: (STRING if name in ("start_date", "end_date") else INT)
+    for name in ZBGetApiUsageResponse.__annotations__
+}
