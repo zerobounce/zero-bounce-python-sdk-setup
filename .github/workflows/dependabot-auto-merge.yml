@@ -24,9 +24,19 @@ on:
 permissions:
   contents: write
   pull-requests: write
-  actions: read # list the workflow runs on a pull request's head commit
+  actions: write # list the runs on a pull request's head commit; start CI and CodeQL after a merge
 
 env:
+  # Shell snippet run after a merge. A merge made with GITHUB_TOKEN starts no push workflows, so
+  # this starts CI and CodeQL on the default branch itself (workflow_dispatch is the one event
+  # GITHUB_TOKEN may start); otherwise the merged head would never be tested.
+  RUN_DEFAULT_BRANCH_CHECKS: |
+    branch=$(gh api "repos/$GITHUB_REPOSITORY" --jq .default_branch)
+    gh workflow list --repo "$GITHUB_REPOSITORY" --json path --jq '.[].path' \
+      | grep -E '/(sdk_ci|ci|codeql)\.yml$' \
+      | while read -r wf; do
+          gh workflow run --repo "$GITHUB_REPOSITORY" "$(basename "$wf")" --ref "$branch"
+        done
   # jq filter over `gh api repos/{repo}/actions/runs?head_sha=...`. Prints "success: ...",
   # "failure: ..." or "pending: ..." followed by the workflow runs that decided it. Runs of this
   # workflow ($self) are left out. For each workflow and event only the newest run counts; a
@@ -130,6 +140,7 @@ jobs:
           done
           # Refuses to merge if a commit was pushed after the checks above ran.
           gh pr merge --merge --match-head-commit "$HEAD_SHA" "$PR_URL"
+          eval "$RUN_DEFAULT_BRANCH_CHECKS"
 
   weekly-merge-ready:
     name: Merge approved security updates whose checks passed
@@ -151,6 +162,7 @@ jobs:
           fi
           mapfile -t rows <<< "$prs"
           failed=0
+          merged=0
           for row in "${rows[@]}"; do
             read -r number sha <<< "$row"
             # Only pull requests the job above approved for their current head commit: it approves
@@ -167,7 +179,9 @@ jobs:
             echo "#$number: $state"
             case "$state" in
               success:*)
-                if ! gh pr merge --repo "$GITHUB_REPOSITORY" --merge --match-head-commit "$sha" "$number"; then
+                if gh pr merge --repo "$GITHUB_REPOSITORY" --merge --match-head-commit "$sha" "$number"; then
+                  merged=1
+                else
                   echo "::error::#$number: merge failed."
                   failed=1
                 fi
@@ -176,4 +190,5 @@ jobs:
               *) echo "#$number: checks still running; not merged." ;;
             esac
           done
+          if [ "$merged" -eq 1 ]; then eval "$RUN_DEFAULT_BRANCH_CHECKS"; fi
           exit "$failed"

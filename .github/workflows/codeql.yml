@@ -12,6 +12,9 @@
 name: "CodeQL Advanced"
 
 on:
+  # Started by dependabot-auto-merge.yml after it merges: a merge made with GITHUB_TOKEN
+  # starts no push workflows.
+  workflow_dispatch:
   push:
     branches: [ "master" ]
   pull_request:

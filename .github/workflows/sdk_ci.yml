@@ -2,6 +2,9 @@
 name: SDK CI
 
 on:
+  # Started by dependabot-auto-merge.yml after it merges: a merge made with GITHUB_TOKEN
+  # starts no push workflows.
+  workflow_dispatch:
   pull_request:
     types: [opened, synchronize, reopened]
   push:
