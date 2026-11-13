@@ -81,8 +81,8 @@ class ZBFileResponse(ZBResponse):
 
     def __init__(self, data):
         super().__init__(data)
-        if isinstance(self.message, list) and len(self.message) > 0:
-            self.message = self.message[0]
+        if isinstance(self.message, list):
+            self.message = "\n".join(self.message)
         if isinstance(self.success, str):
             if self.success == "True":
                 self.success = True

@@ -24,6 +24,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `ZeroBounceWarmup.add_sending_account` parses `ignore_conflict` strictly, as `ZeroBounce` parses its boolean options: `True`/`False`, `"true"`/`"false"` (any case) and `1`/`0` are accepted, and anything else raises `ZBClientException("Invalid parameter: ignore_conflict must be true or false")` before a request is sent. Up to 3.0.1 the value went through `bool()`, so `ignore_conflict="false"` sent `true`.
 - A 2xx body that is not strict JSON, because it holds `NaN`, `Infinity` or `-Infinity` (alone or as a value, such as `{"Credits": NaN}`), raises `ZBApiException` with `status_code` 200 on every `ZeroBounce` and `ZeroBounceWarmup` JSON call, as other bodies that are not valid JSON do. Up to 3.0.1 Python's lenient `json` parser accepted them: a JSON object holding them was returned as a result (with a `float('nan')` field), and a bare `NaN` raised `TypeError` or `AttributeError` from inside the SDK or was returned as `nan`.
 
+- The email finder and domain search answers (`guess_format`, `find_domain`, `find_email_format`) no longer raise from the response class when a full result carries a `message` key beside its fields: the result is returned. A body made only of message keys is a rejected request: it raises `ZBApiException` with status 200, the API key masked, and the text of the first non-blank message, or "Request failed" when the message is null or blank. Up to 3.0.1 the class raised for any `message` key with no status and no masking, so a key echoed in the message came back unmasked, and `"message": null` raised the error text `None`.
+
+- A file job's `message` that is a list of strings (`send_file`, `file_status`, `delete_file` and the other file calls) reads as one string, the strings joined with a newline. Up to 3.0.1 only the first string was kept.
+
 ### Security
 
 - Redaction is closed under encoding. After the known spellings of the API key, the Warmup key and the SMTP `username` and `password` are masked, every error message (from a response body or a transport error) is decoded up to four layers deep (the SDK's own request encoding plus three echo layers), in any order (URL-decoding, `+` as a space, JSON unescaping including `\/` and `\uXXXX`); if any decoded view still holds a secret, the message is replaced by "ZeroBounce returned an error; the response body was omitted because it contained a credential." (`CREDENTIAL_OMITTED_MESSAGE`). Up to 3.0.1 a key URL-encoded twice (a server echoing a URL-encoded copy of a form body) came back unmasked, for example from `validate_s3file`, `export_sftpfile` and `add_filter`.
@@ -32,6 +36,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `ZeroBounce` and `ZeroBounceWarmup` refuse to be pickled (and so to be copied with `copy.copy` / `copy.deepcopy`): they raise `TypeError` without the key. Up to 3.0.1 `pickle.dumps(client)` wrote the API key into the pickle.
 - `validate_batch` redacts the API key in its account-level error (an `"email_address": "all"` entry such as "Invalid API key <key>"), as every other error is redacted. 3.0.1 raised that text unchanged.
 - A body that is not valid JSON no longer keeps the JSON parser's error, which quotes the body (and any key in it), as the `__context__` of the `ZBApiException` raised for it, on `ZeroBounce` and `ZeroBounceWarmup`. Up to 3.0.1 the error was raised with `from None`, which hides the original from tracebacks but leaves it on `__context__`.
+
+- The API key is no longer a plain attribute of `ZeroBounce` and `ZeroBounceWarmup`: it is held in a masked holder, so `vars()`, `__dict__` and any dump of a client show `***`. Up to 3.0.1 `vars(client)` showed `_api_key` with the key in it.
 
 ## [3.0.1] - 2026-11-11
 

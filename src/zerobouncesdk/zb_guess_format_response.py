@@ -2,7 +2,6 @@ from typing import List
 
 from . import (
     ZBConfidence,
-    ZBApiException,
     ZBValidateStatus,
     ZBValidateSubStatus,
 )
@@ -58,9 +57,6 @@ class ZBGuessFormatResponse(ZBResponse):
 
     def __init__(self, data):
         super().__init__(data)
-        if "Message" in data or "message" in data:
-            message = data.get("message") or data.get("Message")
-            raise ZBApiException(message)
 
         self.status = safe_enum_convert(ZBValidateStatus, self.status, "status", lowercase=True)
         self.sub_status = safe_enum_convert(ZBValidateSubStatus, self.sub_status, "sub_status", lowercase=True)

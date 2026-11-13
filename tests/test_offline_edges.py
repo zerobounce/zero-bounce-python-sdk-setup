@@ -197,15 +197,14 @@ class OptionalFieldsTest(_Offline):
 class ResponseModelTest(TestCase):
     """Response shapes from the docs, including the ones that used to crash."""
 
-    def test_lowercase_message_raises_api_error_not_key_error(self):
+    def test_lowercase_message_is_not_a_key_error_in_the_model(self):
         from zerobouncesdk import ZBFindDomainResponse, ZBGuessFormatResponse
 
+        # A message-only finder body is rejected by the client, with its status and redaction (FinderMessageTest);
+        # the model itself never raises, so every path gets the same handling.
         for model in (ZBFindDomainResponse, ZBGuessFormatResponse):
-            with self.assertRaises(ZBApiException) as caught:
-                model({"message": "Invalid API key or your account ran out of credits"})
-            self.assertIn("Invalid API key", str(caught.exception))
-            with self.assertRaises(ZBApiException):
-                model({"Message": "Invalid API key or your account ran out of credits"})
+            self.assertIsInstance(model({"message": "Invalid API key or your account ran out of credits"}), model)
+            self.assertIsInstance(model({"Message": "Invalid API key or your account ran out of credits"}), model)
 
     def test_unknown_confidence_is_none_with_a_warning(self):
         from zerobouncesdk import ZBConfidence, ZBFindDomainResponse, ZBFindEmailFormatResponse

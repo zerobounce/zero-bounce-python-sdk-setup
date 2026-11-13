@@ -6,6 +6,7 @@ documented example response still parses. The Warmup client and the raw-JSON cal
 """
 
 import importlib
+import io
 import json
 import pkgutil
 import tempfile
@@ -407,6 +408,10 @@ SITE_RESULTS = [
         '      "processed_at": "2026-06-18 07:05:00.033"\n'
         '  }'
     )),
+    # _email-validation-api-quickstart_v2-batch-validate-emails_response.html
+    ('validate_batch', ('{\n      "email_batch": [\n          {\n              "address": "john.doe@zerobounce.net",\n              "status": "valid",\n              "sub_status": "",\n              "free_email": false,\n              "catchall_domain": true,\n              "did_you_mean": null,\n              "account": "johndoe",\n              "domain": "zerobounce.net",\n              "domain_age_days": "3431",\n              "active_in_days": "30",\n              "active_first_seen": "2026-02-25",\n              "smtp_provider": "g-suite",\n              "mx_found": "true",\n              "mx_record": "aspmx.l.google.com",\n              "firstname": "dan",\n              "lastname": "cotet",\n              "gender": "male",\n              "country": null,\n              "region": null,\n              "city": null,\n              "zipcode": null,\n              "processed_at": "2026-06-18 07:05:00.033"\n          },\n          {\n              "address": "invalid@example.com",\n              "status": "invalid",\n              "sub_status": "mailbox_not_found",\n              "free_email": false,\n              "did_you_mean": null,\n              "account": null,\n              "domain": null,\n              "domain_age_days": "9692",\n              "active_in_days": "365",\n              "active_first_seen": "2026-02-25",\n              "smtp_provider": "example",\n              "mx_found": "true",\n              "mx_record": "mx.example.com",\n              "catchall_domain": false,\n              "firstname": "zero",\n              "lastname": "bounce",\n              "gender": "male",\n              "country": null,\n              "region": null,\n              "city": null,\n              "zipcode": null,\n              "processed_at": "2020-09-17 17:43:11.830"\n          },\n          {\n              "address": "disposable@example.com",\n              "status": "do_not_mail",\n              "sub_status": "disposable",\n              "free_email": false,\n              "did_you_mean": null,\n              "account": null,\n              "domain": null,\n              "domain_age_days": "9692",\n              "active_in_days": "365",\n              "active_first_seen": "2026-02-25",\n              "smtp_provider": "example",\n              "mx_found": "true",\n              "mx_record": "mx.example.com",\n              "catchall_domain": false,\n              "firstname": "zero",\n              "lastname": "bounce",\n              "gender": "male",\n              "country": null,\n              "region": null,\n              "city": null,\n              "zipcode": null,\n              "processed_at": "2020-09-17 17:43:11.830"\n          }\n      ],\n      "errors": []\n  }',)),
+    # _email-validation-api-quickstart_v2-get-api-usage_response.html
+    ('get_api_usage', ('{\n      "total": 120,\n      "status_valid": 17,\n      "status_invalid": 69,\n      "status_catch_all": 9,\n      "status_do_not_mail": 16,\n      "status_spamtrap": 0,\n      "status_unknown": 6,\n      "sub_status_toxic": 0,\n      "sub_status_disposable": 1,\n      "sub_status_role_based": 1,\n      "sub_status_possible_trap": 0,\n      "sub_status_global_suppression": 14,\n      "sub_status_timeout_exceeded": 0,\n      "sub_status_mail_server_temporary_error": 0,\n      "sub_status_mail_server_did_not_respond": 0,\n      "sub_status_greylisted": 6,\n      "sub_status_antispam_system": 0,\n      "sub_status_does_not_accept_mail": 27,\n      "sub_status_exception_occurred": 0,\n      "sub_status_failed_syntax_check": 20,\n      "sub_status_mailbox_not_found": 12,\n      "sub_status_unroutable_ip_address": 0,\n      "sub_status_possible_typo": 0,\n      "sub_status_no_dns_entries": 10,\n      "sub_status_role_based_catch_all": 0,\n      "sub_status_mailbox_quota_exceeded": 0,\n      "sub_status_forcible_disconnect": 0,\n      "sub_status_failed_smtp_connection": 0,\n      "sub_status_leading_period_removed": 0,\n      "sub_status_alias_address": 2,\n      "sub_status_mx_forward": 0,\n      "sub_status_alternate": 0,\n      "sub_status_blocked": 0,\n      "sub_status_allowed": 0,\n      "start_date": "1/1/2023",\n      "end_date": "1/30/2024"\n    }',)),
 ]
 SITE_ERRORS = [
     # _ai-scoring-api_ai-scoring-api__file-status_api-file-status-response.html
@@ -571,3 +576,40 @@ class NestedPathSweepTest(TestCase):
                             wrong.append((name, path, "accepted", body, result))
         self.assertGreater(count, 200)
         self.assertEqual(wrong, [])
+
+
+class NullAndMessageListTest(TestCase):
+    """B: null in an optional field reads as that type's empty value, never an error; a file-job message that is a
+    list of strings reads as one string joined with newlines (standard.md section 3)."""
+
+    def test_null_optional_fields_are_accepted_and_read_as_empty(self):
+        client = ZeroBounce(KEY)
+        cases = (
+            (lambda: client.validate_batch([ZBValidateBatchElement("a@example.com")]),
+             '{"email_batch":null,"errors":null}',
+             lambda r: (r.email_batch, r.errors), ([], [])),
+            (lambda: client.find_domain(domain="example.com"),
+             '{"domain":"example.com","other_domain_formats":null}',
+             lambda r: r.other_domain_formats, []),
+            (lambda: client.guess_format("a@example.com"),
+             '{"email":"a@example.com","other_domain_formats":null}',
+             lambda r: r.other_domain_formats, []),
+            (lambda: client.file_status("f1"),
+             '{"success":true,"file_id":null,"upload_date":null,"file_status":"Complete"}',
+             lambda r: r.file_status, "Complete"),
+        )
+        for call, body, read, expected in cases:
+            with patch("requests.sessions.Session.send", _file_reply(200, body.encode(), "application/json")):
+                self.assertEqual(read(_quiet(call)), expected, body)
+
+    def test_a_message_list_reads_as_one_string_joined_with_newlines(self):
+        client = ZeroBounce(KEY)
+        for body, expected in (
+            ('{"success":true,"file_id":"f1","file_name":"a.csv","message":["File Accepted","Queued"]}',
+             "File Accepted\nQueued"),
+            ('{"success":true,"file_id":"f1","file_name":"a.csv","message":["File Accepted"]}', "File Accepted"),
+            ('{"success":true,"file_id":"f1","file_name":"a.csv","message":"File Accepted"}', "File Accepted"),
+        ):
+            with patch("requests.sessions.Session.send", _file_reply(200, body.encode(), "application/json")):
+                self.assertEqual(_quiet(lambda: client.send_file_stream(io.BytesIO(b"e\n"), "a.csv", 1)).message,
+                                 expected, body)

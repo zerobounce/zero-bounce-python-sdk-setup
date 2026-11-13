@@ -446,3 +446,101 @@ class _nothing:
 
     def __exit__(self, *exc):
         return False
+
+
+class FinderMessageTest(ParityTestCase):
+    """The finder and domain-search answers: a message beside a result is not an error, a message-only body is one
+    with status 200, and the API key never reaches the message (standard.md sections 3 and the message-only rule)."""
+
+    FINDER_CALLS = (
+        ("guess_format", lambda c: c.guess_format("john@example.com")),
+        ("find_domain", lambda c: c.find_domain(domain="example.com")),
+        ("find_email_format", lambda c: c.find_email_format(first_name="Ann", domain="example.com")),
+    )
+    FULL_RESULTS = {
+        "guess_format": '{"email":"john@example.com","domain":"example.com","format":"first.last","status":"valid",'
+                        '"sub_status":"","confidence":"high","did_you_mean":"","failure_reason":"",'
+                        '"other_domain_formats":[],"message":"Format found"}',
+        "find_domain": '{"domain":"example.com","company_name":"Example","format":"first.last","confidence":"high",'
+                       '"did_you_mean":"","failure_reason":"","other_domain_formats":[],"message":"Found"}',
+        "find_email_format": '{"email":"ann@example.com","email_confidence":"HIGH","domain":"example.com",'
+                             '"company_name":"Example","did_you_mean":"","failure_reason":"","message":null}',
+    }
+
+    def test_a_full_result_with_a_message_key_is_a_result(self):
+        for name, call in self.FINDER_CALLS:
+            self.serve(self.FULL_RESULTS[name])
+            result = call(self.client)
+            self.assertEqual(result.format if name == "guess_format" else result.domain,
+                             "first.last" if name == "guess_format" else "example.com", name)
+
+    def test_a_message_only_body_is_an_error_with_status_200_and_no_key(self):
+        bodies = (
+            '{"Message":"Invalid API key parity-key"}',
+            '{"message":"Invalid API key parity-key"}',
+            '{"message":["Invalid API key parity-key"]}',
+            '{"message":null}',
+            '{"Message":""}',
+        )
+        for name, call in self.FINDER_CALLS:
+            for body in bodies:
+                self.serve(body)
+                with self.assertRaises(ZBApiException, msg=(name, body)) as caught:
+                    call(self.client)
+                self.assertEqual(caught.exception.status_code, 200, (name, body))
+                self.assertNotIn(KEY, str(caught.exception), (name, body))
+                self.assertNotIn("None", str(caught.exception), (name, body))
+
+    def test_the_key_is_not_in_any_introspection_of_a_client(self):
+        import pprint
+
+        for owner in (ZeroBounce(KEY), ZeroBounceWarmup(KEY)):
+            printed = repr(vars(owner)) + str(vars(owner)) + pprint.pformat(vars(owner))
+            self.assertNotIn(KEY, printed, type(owner).__name__)
+            self.assertNotIn(KEY, repr(owner))
+            self.assertNotIn(KEY, str(owner))
+
+
+class ReturnUrlAndStringFalseTest(ParityTestCase):
+    """D closure: return_url is sent only when the caller sets it, and a string "false" success is an error."""
+
+    SEND_CALLS = (
+        ("send_file", lambda c, path, stream, url: c.send_file(path, 1, return_url=url)),
+        ("send_file_stream", lambda c, path, stream, url: c.send_file_stream(stream, "a.csv", 1, return_url=url)),
+        ("scoring_send_file", lambda c, path, stream, url: c.scoring_send_file(path, 1, return_url=url)),
+        ("scoring_send_file_stream",
+         lambda c, path, stream, url: c.scoring_send_file_stream(stream, "a.csv", 1, return_url=url)),
+    )
+
+    def test_return_url_is_sent_only_when_set(self):
+        server = self.serve('{"success":true,"message":"File Accepted","file_name":"a.csv","file_id":"f1"}')
+        path = os.path.join(tempfile.mkdtemp(), "a.csv")
+        with open(path, "w") as handle:
+            handle.write("a@example.com\n")
+        for name, call in self.SEND_CALLS:
+            server.requests.clear()
+            call(self.client, path, io.BytesIO(b"a@example.com\n"), None)
+            self.assertNotIn(b'name="return_url"', server.requests[-1].body or b"", name)
+            self.assertNotIn("return_url", urlsplit(server.requests[-1].url).query, name)
+            server.requests.clear()
+            call(self.client, path, io.BytesIO(b"a@example.com\n"), "https://example.com/done")
+            sent = server.requests[-1].body or b""
+            if isinstance(sent, str):
+                sent = sent.encode()
+            self.assertIn(b"https://example.com/done", sent, name)
+
+    def test_string_false_success_is_an_error_with_status_200(self):
+        for body in ('{"success":"false","message":"File cannot be found."}',
+                     '{"success":"False","error_message":"File cannot be found."}'):
+            self.serve(body)
+            for call in (
+                lambda: self.client.file_status("f1"),
+                lambda: self.client.delete_file("f1"),
+                lambda: self.client.get_credits(),
+                lambda: self.client.validate_batch([ZBValidateBatchElement("a@example.com")]),
+                lambda: self.client.find_domain(domain="example.com"),
+            ):
+                with self.assertRaises(ZBApiException) as caught:
+                    call()
+                self.assertEqual(caught.exception.status_code, 200, body)
+                self.assertEqual(str(caught.exception), "File cannot be found.", body)

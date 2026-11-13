@@ -17,6 +17,7 @@ from requests.exceptions import RequestException
 from .zb_exceptions import ZBApiException, ZBClientException
 from .zerobouncesdk import (
     _RefusesPickling,
+    _Secret,
     _check_api_key,
     _looks_like_html,
     _message_from_body,
@@ -65,14 +66,14 @@ class ZeroBounceWarmup(_RefusesPickling):
         base = base_url or self.DEFAULT_BASE_URL
         if not isinstance(base, str) or not base.lower().startswith("https://"):
             raise ZBClientException("base_url must be an https:// URL")
-        self._api_key = api_key
+        self._api_key = _Secret(api_key)
         self._root = base.rstrip("/") + self.BASE_PATH
         self._timeout_s = self.DEFAULT_HTTP_TIMEOUT_S if timeout is None else timeout.total_seconds()
 
     # -- transport ----------------------------------------------------------------------------
 
     def _redact(self, text, extra_secrets=()) -> str:
-        return _redact_secrets(text, (self._api_key, *extra_secrets))
+        return _redact_secrets(text, (self._api_key.value, *extra_secrets))
 
     def _send(self, method: str, path: str, *, params=None, json=None, secrets=()):
         try:
@@ -81,7 +82,7 @@ class ZeroBounceWarmup(_RefusesPickling):
                 f"{self._root}{path}",
                 params=params,
                 json=json,
-                headers={"API-Key": self._api_key, "Accept": "application/json"},
+                headers={"API-Key": self._api_key.value, "Accept": "application/json"},
                 timeout=self._timeout_s,
                 allow_redirects=False,
             )

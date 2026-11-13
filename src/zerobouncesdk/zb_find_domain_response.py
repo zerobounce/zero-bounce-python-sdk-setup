@@ -1,6 +1,6 @@
 from typing import List
 
-from . import ZBConfidence, ZBApiException
+from . import ZBConfidence
 from ._zb_response import ARRAY, STRING, ZBResponse
 from ._zb_utils import safe_enum_convert
 from .zb_guess_format_response import ZBDomainFormat
@@ -41,9 +41,6 @@ class ZBFindDomainResponse(ZBResponse):
 
     def __init__(self, data):
         super().__init__(data)
-        if "Message" in data or "message" in data:
-            message = data.get("message") or data.get("Message")
-            raise ZBApiException(message)
 
         self.confidence = safe_enum_convert(ZBConfidence, self.confidence, "confidence", lowercase=True)
 

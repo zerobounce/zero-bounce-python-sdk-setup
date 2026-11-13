@@ -315,6 +315,24 @@ def _redact_secrets(text, secrets) -> str:
     return text
 
 
+class _Secret:
+    """A credential a client holds. Its text is masked, so no dump of the client (``vars()``, ``repr``, ``pprint``)
+    shows the key; the key is read only through ``.value``."""
+
+    __slots__ = ("value",)
+
+    def __init__(self, value: str):
+        self.value = value
+
+    def __repr__(self) -> str:
+        return "***"
+
+    __str__ = __repr__
+
+    def __reduce_ex__(self, protocol):
+        raise TypeError("A credential cannot be pickled or copied")
+
+
 class _RefusesPickling:
     """A client holds its API key; pickling it would write the key to wherever the pickle goes."""
 
@@ -348,6 +366,13 @@ def _shape_message(payload, shape) -> str:
 
 # The keys a message-only body is made of.
 _MESSAGE_KEYS = ("error", "message", "error_message", "Message", "Error", "detail")
+
+
+def _message_text(value):
+    """The text of a message value: a non-blank string, or the first non-blank string of a list; else None."""
+    if isinstance(value, list):
+        value = next((item for item in value if isinstance(item, str) and item.strip()), None)
+    return value if isinstance(value, str) and value.strip() else None
 
 
 def _form_data(data):
@@ -428,7 +453,7 @@ class ZeroBounce(_RefusesPickling):
         if not api_key.strip():
             raise ZBClientException("Empty parameter: api_key")
         _check_api_key(api_key)
-        self._api_key = api_key
+        self._api_key = _Secret(api_key)
         
         # Handle base_url: enum, string, or default
         if base_url is None:
@@ -502,7 +527,7 @@ class ZeroBounce(_RefusesPickling):
 
     def _redact(self, text) -> str:
         """Mask the API key in text that can end up in exception messages or logs."""
-        return _redact_secrets(text, (self._api_key,))
+        return _redact_secrets(text, (self._api_key.value,))
 
     def _read_json_payload(self, response, message_only_is_error: bool = False, shape=dict):
         """The JSON payload of a 2xx answer, which must be of type ``shape`` (``dict``, ``list`` or a tuple of
@@ -559,10 +584,8 @@ class ZeroBounce(_RefusesPickling):
             if message_only_is_error and payload and "success" not in payload and all(
                 key in _MESSAGE_KEYS for key in payload
             ):
-                for key in _MESSAGE_KEYS:
-                    value = payload.get(key)
-                    if isinstance(value, str) and value.strip():
-                        raise ZBApiException(self._redact(_strip_error_prefix(value)), status_code=status)
+                text = next((t for t in (_message_text(payload.get(key)) for key in _MESSAGE_KEYS) if t), None)
+                raise ZBApiException(self._redact(_strip_error_prefix(text or "Request failed")), status_code=status)
         if shape is not None and not isinstance(payload, shape):
             raise ZBApiException(_shape_message(payload, shape), status_code=status)
         return payload
@@ -618,7 +641,7 @@ class ZeroBounce(_RefusesPickling):
         self._checked_url(url)
         if not params:
             params = {}
-        params["api_key"] = self._api_key
+        params["api_key"] = self._api_key.value
         try:
             response = requests.get(url, params=params, timeout=self._timeout_s, allow_redirects=False)
         except RequestException as e:
@@ -655,7 +678,7 @@ class ZeroBounce(_RefusesPickling):
         if not data:
             data = {}
         data = dict(data)
-        data["api_key"] = self._api_key
+        data["api_key"] = self._api_key.value
         try:
             response = requests.post(
                 url, data=_form_data(data), timeout=self._timeout_s, allow_redirects=False
@@ -694,10 +717,10 @@ class ZeroBounce(_RefusesPickling):
             params = {}
         headers = None
         if bearer:
-            headers = {"Authorization": f"Bearer {self._api_key}"}
+            headers = {"Authorization": f"Bearer {self._api_key.value}"}
         elif "api_key" not in params and (data is None or "api_key" not in data):
             params = dict(params)
-            params["api_key"] = self._api_key
+            params["api_key"] = self._api_key.value
         try:
             response = requests.request(
                 method,
@@ -728,7 +751,7 @@ class ZeroBounce(_RefusesPickling):
         self, url: str, file_path: str, fields: dict
     ) -> ZBSendFileResponse:
         data = dict(fields)
-        data["api_key"] = self._api_key
+        data["api_key"] = self._api_key.value
         with open(file_path, "rb") as file:
             files = {"file": (os.path.basename(file_path), file, "text/csv")}
             return self._post(url, ZBSendFileResponse, data=data, files=files)
@@ -737,7 +760,7 @@ class ZeroBounce(_RefusesPickling):
         self, url: str, file_stream: BinaryIO, file_name: str, fields: dict
     ) -> ZBSendFileResponse:
         data = dict(fields)
-        data["api_key"] = self._api_key
+        data["api_key"] = self._api_key.value
         files = {"file": (file_name, file_stream, "text/csv")}
         return self._post(url, ZBSendFileResponse, data=data, files=files)
 
@@ -759,7 +782,7 @@ class ZeroBounce(_RefusesPickling):
     ) -> ZBGetFileResponse:
         if not file_id.strip():
             raise ZBClientException("Empty parameter: file_id")
-        params = {"api_key": self._api_key, "file_id": file_id}
+        params = {"api_key": self._api_key.value, "file_id": file_id}
         return self._download(f"{base_url}/getfile", params, download_path, stream)
 
     # Streamed downloads look at this much of the body before deciding it is a file, not an error page.
@@ -877,7 +900,7 @@ class ZeroBounce(_RefusesPickling):
 
     def _post_bulk_root_form(self, path: str, fields: dict) -> ZBSendFileResponse:
         data = dict(fields)
-        data["api_key"] = self._api_key
+        data["api_key"] = self._api_key.value
         return self._post(
             f"{_root(self.BULK_ROOT_URL)}{path}",
             ZBSendFileResponse,
@@ -1125,7 +1148,7 @@ class ZeroBounce(_RefusesPickling):
         self._check_validate_batch_timeout(timeout)
 
         payload = {
-            "api_key": self._api_key,
+            "api_key": self._api_key.value,
             "email_batch": [
                 batch_element.to_json() for batch_element in email_batch
             ],
@@ -1162,7 +1185,7 @@ class ZeroBounce(_RefusesPickling):
     ):
         data.update(
             {
-                "api_key": self._api_key,
+                "api_key": self._api_key.value,
                 "email_address_column": email_address_column,
             }
         )
@@ -1182,7 +1205,7 @@ class ZeroBounce(_RefusesPickling):
         data = dict(data)
         data.update(
             {
-                "api_key": self._api_key,
+                "api_key": self._api_key.value,
                 "email_address_column": email_address_column,
             }
         )
@@ -1470,7 +1493,7 @@ class ZeroBounce(_RefusesPickling):
         if not file_id.strip():
             raise ZBClientException("Empty parameter: file_id")
         params = {
-            "api_key": self._api_key,
+            "api_key": self._api_key.value,
             "file_id": file_id,
         }
         if options is not None:
@@ -1736,7 +1759,7 @@ class ZeroBounce(_RefusesPickling):
         if email_address_column is None:
             raise ZBClientException("Empty parameter: email_address_column")
         data = {
-            "api_key": self._api_key,
+            "api_key": self._api_key.value,
             "email_address_column": email_address_column,
         }
         with open(file_path, "rb") as file:
@@ -1757,7 +1780,7 @@ class ZeroBounce(_RefusesPickling):
         if email_address_column is None:
             raise ZBClientException("Empty parameter: email_address_column")
         data = {
-            "api_key": self._api_key,
+            "api_key": self._api_key.value,
             "email_address_column": email_address_column,
         }
         files = {"file": (file_name, file_stream, "text/csv")}
@@ -1775,7 +1798,7 @@ class ZeroBounce(_RefusesPickling):
         return self._request_json(
             "GET",
             f"{_root(self.LIST_EVALUATOR_BASE_URL)}/{_path_segment(file_id, 'file_id')}/",
-            params={"api_key": self._api_key},
+            params={"api_key": self._api_key.value},
             response_class=ZBListEvaluatorResponse,
         )
 
@@ -1810,7 +1833,7 @@ class ZeroBounce(_RefusesPickling):
             "POST",
             f"{self._base_url}/filters/add",
             data={
-                "api_key": self._api_key,
+                "api_key": self._api_key.value,
                 "rule": rule,
                 "target": target,
                 "value": value,
@@ -1823,13 +1846,13 @@ class ZeroBounce(_RefusesPickling):
             return self._request_json(
                 "POST",
                 f"{self._base_url}/filters/list",
-                data={"api_key": self._api_key},
+                data={"api_key": self._api_key.value},
                 shape=list,
             )
         return self._request_json(
             "GET",
             f"{self._base_url}/filters/list",
-            params={"api_key": self._api_key},
+            params={"api_key": self._api_key.value},
             shape=list,
         )
 
@@ -1840,7 +1863,7 @@ class ZeroBounce(_RefusesPickling):
             "POST",
             f"{self._base_url}/filters/delete",
             data={
-                "api_key": self._api_key,
+                "api_key": self._api_key.value,
                 "rule": rule,
                 "target": target,
                 "value": value,

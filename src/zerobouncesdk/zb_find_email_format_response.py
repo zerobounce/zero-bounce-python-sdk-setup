@@ -1,4 +1,4 @@
-from . import ZBApiException, ZBConfidence
+from . import ZBConfidence
 from ._zb_response import STRING, ZBResponse
 from ._zb_utils import safe_enum_convert
 
@@ -34,9 +34,6 @@ class ZBFindEmailFormatResponse(ZBResponse):
 
     def __init__(self, data):
         super().__init__(data)
-        if "Message" in data or "message" in data:
-            message = data.get("message", data.get("Message"))
-            raise ZBApiException(message)
         self.email_confidence = safe_enum_convert(
             ZBConfidence, self.email_confidence, "email_confidence", lowercase=True
         )
