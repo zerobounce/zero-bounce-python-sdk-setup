@@ -181,16 +181,21 @@ class CreditsAndValidateTest(TestCase):
         with patch("requests.sessions.Session.send", _file_reply(200, body.encode(), "application/json")):
             return call()
 
-    def test_credits_must_be_a_string_holding_an_integer(self):
+    def test_credits_must_be_an_integer_as_a_json_string_or_number(self):
         client = ZeroBounce(KEY)
         for use_post in (False, True):
             call = lambda: client.get_credits(use_post=use_post)  # noqa: E731
-            for body in ('{}', '{"Credits":null}', '{"Credits":true}', '{"Credits":5}', '{"Credits":-1}',
-                         '{"Credits":"abc"}', '{"Credits":"5.0"}', '{"Credits":""}', '{"Credits":" 5"}',
-                         '{"Credits":[1]}', '{"Credits":{"a":1}}', '{"Credits":"٥"}'):
+            for body in ('{}', '{"Credits":null}', '{"Credits":true}', '{"Credits":false}', '{"Credits":5.5}',
+                         '{"Credits":5.0}', '{"Credits":1e3}', '{"Credits":"abc"}', '{"Credits":"5.0"}',
+                         '{"Credits":""}', '{"Credits":" 5"}', '{"Credits":[1]}', '{"Credits":{"a":1}}',
+                         '{"Credits":"٥"}'):
                 self._error(call, body)
+            # The live API sends a JSON string; zerobounce.net's example sends a JSON number. Both are kept as sent.
             self.assertEqual(self._ok(call, '{"Credits":"-1"}').credits, "-1")
             self.assertEqual(self._ok(call, '{"Credits":"12345"}').credits, "12345")
+            self.assertEqual(self._ok(call, '{"Credits":2375323}').credits, 2375323)
+            self.assertEqual(self._ok(call, '{"Credits":-1}').credits, -1)
+            self.assertEqual(self._ok(call, '{"Credits":0}').credits, 0)
 
     def test_validate_needs_a_string_address_and_status(self):
         client = ZeroBounce(KEY)
@@ -212,11 +217,21 @@ class CreditsAndValidateTest(TestCase):
         call = lambda: client.validate_batch([ZBValidateBatchElement("a@example.com")])  # noqa: E731
         for body in ('{"email_batch":[{"address":"a@b.c","status":5}],"errors":[]}',
                      '{"email_batch":[{"status":"valid"}],"errors":[]}',
+                     '{"email_batch":[{"address":"a@b.c"}],"errors":[]}',
+                     '{"email_batch":[{"address":null,"status":"valid"}],"errors":[]}',
+                     '{"email_batch":[{"address":"a@b.c","status":null}],"errors":[]}',
+                     '{"email_batch":[5],"errors":[]}',
+                     '{"email_batch":[null],"errors":[]}',
+                     '{"email_batch":["a@b.c"],"errors":[]}',
+                     '{"email_batch":[["a@b.c","valid"]],"errors":[]}',
+                     '{"email_batch":[],"errors":[5]}',
+                     '{"email_batch":[],"errors":[null]}',
                      '{"email_batch":[],"errors":[{"error":5,"email_address":"a@b.c"}]}'):
             self._error(call, body)
 
 
-# Documented example responses (zerobounce.net/docs) and the repo's live-recorded shapes: they must all parse.
+# Recorded response shapes (the live API, the repo's fixtures and older docs): they must all parse. The examples
+# zerobounce.net/docs shows today are in SITE_RESULTS below, verbatim.
 DOCUMENTED = {
     "get_credits": '{"Credits":"2375323"}',
     "validate": (
@@ -282,3 +297,277 @@ class DocumentedExamplesParseTest(TestCase):
                 with patch("requests.sessions.Session.send", _file_reply(200, body.encode(), "application/json")):
                     result = _quiet(call)
                 self.assertIsInstance(result, ZBResponse, example)
+
+
+# Example responses copied verbatim from zerobounce.net/docs (the page each one is on is named above it).
+# Success examples must parse; the documented error examples must be API errors with status 200.
+SITE_RESULTS = [
+    # _ai-scoring-api_ai-scoring-api__file-status_api-file-status-response.html
+    ('scoring_file_status', (
+        '{\n'
+        '          "success": true,\n'
+        '          "file_id": "aaaaaaaa-zzzz-xxxx-yyyy-5003727fffff",\n'
+        '          "file_name": "Your file name.csv",\n'
+        '          "upload_date": "2023-04-28T15:25:41Z",\n'
+        '          "file_status": "Complete",\n'
+        '          "complete_percentage": "100%",\n'
+        '          "return_url": "Your return URL if provided when calling sendfile API"\n'
+        '      }'
+    )),
+    # _ai-scoring-api_ai-scoring-api__send-file_api-send-file-response.html
+    ('scoring_send_file', (
+        '{\n'
+        '          "success": true,\n'
+        '          "message": "File Accepted",\n'
+        '          "file_name": "Your file name.csv",\n'
+        '          "file_id": "aaaaaaaa-zzzz-xxxx-yyyy-5003727fffff"\n'
+        '      }'
+    )),
+    # _ai-scoring-api_ai_scoring_delete_file_scoring__delete-file.html
+    ('scoring_delete_file', (
+        '{\n'
+        '        "success": true,\n'
+        '        "message": "File Deleted",\n'
+        '        "file_name": "test2",\n'
+        '        "file_id": "b222a0fd-90d5-416c-8f1a-9cc3851fc823"\n'
+        '    }'
+    )),
+    # _email-validation-api-quickstart_v2-credit-balance_response.html
+    ('get_credits', (
+        '{"Credits":2375323}'
+    )),
+    # _email-validation-api-quickstart_v2-delete-file_response.html
+    ('delete_file', (
+        '{\n'
+        '    "success": true,\n'
+        '    "message": "File Deleted",\n'
+        '    "file_name": "test2",\n'
+        '    "file_id": "b222a0fd-90d5-416c-8f1a-9cc3851fc823"\n'
+        '  }'
+    )),
+    # _email-validation-api-quickstart_v2-file-status_response.html
+    ('file_status', (
+        '{\n'
+        '    "success": true,\n'
+        '    "file_id": "aaaaaaaa-zzzz-xxxx-yyyy-5003727fffff",\n'
+        '    "file_name": "Your file name.csv",\n'
+        '    "upload_date": "2023-04-28T15:25:41Z",\n'
+        '    "file_status": "Complete",\n'
+        '    "file_phase_2_status": "N/A",\n'
+        '    "complete_percentage": "100%",\n'
+        '    "return_url": "Your return URL if provided when calling sendfile API"\n'
+        '  }'
+    )),
+    # _email-validation-api-quickstart_v2-file-status_response.html
+    ('file_status', (
+        '{\n'
+        '    "success": true,\n'
+        '    "file_id": "aaaaaaaa-zzzz-xxxx-yyyy-5003727fffff",\n'
+        '    "file_name": "Your file name.csv",\n'
+        '    "upload_date": "2023-04-28T15:25:41Z",\n'
+        '    "file_status": "Complete",\n'
+        '    "file_phase_2_status": "Complete",\n'
+        '    "complete_percentage": "100%",\n'
+        '    "return_url": "Your return URL if provided when calling sendfile API"\n'
+        '  }'
+    )),
+    # _email-validation-api-quickstart_v2-send-file_response.html
+    ('send_file', (
+        '{\n'
+        '      "success": true,\n'
+        '      "message": "File Accepted",\n'
+        '      "file_name": "Your file name.csv",\n'
+        '      "file_id": "aaaaaaaa-zzzz-xxxx-yyyy-5003727fffff"\n'
+        '    }'
+    )),
+    # _email-validation-api-quickstart_v2-validate-emails_response.html
+    ('validate', (
+        '{\n'
+        '      "address": "john.doe@zerobounce.net",\n'
+        '      "status": "valid",\n'
+        '      "sub_status": "",\n'
+        '      "free_email": false,\n'
+        '      "catchall_domain": true,\n'
+        '      "did_you_mean": null,\n'
+        '      "account": "johndoe",\n'
+        '      "domain": "zerobounce.net",\n'
+        '      "domain_age_days": "3431",\n'
+        '      "active_in_days": "30",\n'
+        '      "active_first_seen": "2026-02-25",\n'
+        '      "smtp_provider": "g-suite",\n'
+        '      "mx_found": "true",\n'
+        '      "mx_record": "aspmx.l.google.com",\n'
+        '      "firstname": "dan",\n'
+        '      "lastname": "cotet",\n'
+        '      "gender": "male",\n'
+        '      "country": null,\n'
+        '      "region": null,\n'
+        '      "city": null,\n'
+        '      "zipcode": null,\n'
+        '      "processed_at": "2026-06-18 07:05:00.033"\n'
+        '  }'
+    )),
+]
+SITE_ERRORS = [
+    # _ai-scoring-api_ai-scoring-api__file-status_api-file-status-response.html
+    ('scoring_file_status', (
+        '{\n'
+        '          "success": false,\n'
+        '          "message": "Error messages"\n'
+        '      }'
+    )),
+    # _ai-scoring-api_ai-scoring-api__send-file_api-send-file-response.html
+    ('scoring_send_file', (
+        '{\n'
+        '          "success": false,\n'
+        '          "message": [\n'
+        '              "Error messages"\n'
+        '          ]\n'
+        '      }'
+    )),
+    # _ai-scoring-api_ai_scoring_delete_file_scoring__delete-file.html
+    ('scoring_delete_file', (
+        '{\n'
+        '        "success": false,\n'
+        '        "message": "File cannot be found."\n'
+        '    }'
+    )),
+    # _email-validation-api-quickstart_v2-batch-validate-emails_response.html
+    ('validate_batch', (
+        '{\n'
+        '      "email_batch": [],\n'
+        '      "errors": [\n'
+        '          {\n'
+        '              "error": "Invalid API Key or your account ran out of credits",\n'
+        '              "email_address": "all"\n'
+        '          }\n'
+        '      ]\n'
+        '    }'
+    )),
+    # _email-validation-api-quickstart_v2-delete-file_response.html
+    ('delete_file', (
+        '{\n'
+        '    "success": false,\n'
+        '    "error_message": "File cannot be found."\n'
+        '  }'
+    )),
+    # _email-validation-api-quickstart_v2-file-status_response.html
+    ('file_status', (
+        '{      \n'
+        '    "success": false,\n'
+        '    "error_message": "Error messages"\n'
+        '  }'
+    )),
+    # _email-validation-api-quickstart_v2-get-api-usage_response.html
+    ('get_api_usage', (
+        '{"error":"Invalid API Key"}'
+    )),
+    # _email-validation-api-quickstart_v2-get-api-usage_response.html
+    ('get_api_usage', (
+        '{"error":"Invalid Date"}'
+    )),
+    # _email-validation-api-quickstart_v2-send-file_response.html
+    ('send_file', (
+        '{\n'
+        '      "success": false,\n'
+        '      "error_message": "Error messages"\n'
+        '    }'
+    )),
+    # _email-validation-api-quickstart_v2-validate-emails_response.html
+    ('validate', (
+        '{"error":"Invalid API Key or your account ran out of credits"}'
+    )),
+]
+
+
+class ZeroBounceNetExamplesTest(TestCase):
+    def _calls(self):
+        return client_calls(ZeroBounce(KEY), str(Path(tempfile.mkdtemp()) / "out.csv"))
+
+    def test_every_documented_result_parses(self):
+        calls = self._calls()
+        for name, parts in SITE_RESULTS:
+            body = "".join(parts)
+            self.assertIn(name, calls)
+            for call in calls[name]:
+                with patch("requests.sessions.Session.send", _file_reply(200, body.encode(), "application/json")):
+                    result = _quiet(call)
+                self.assertIsInstance(result, ZBResponse, name)
+        with patch("requests.sessions.Session.send", _file_reply(200, b'{"Credits":2375323}', "application/json")):
+            self.assertEqual(ZeroBounce(KEY).get_credits().credits, 2375323)
+
+    def test_every_documented_error_is_an_error_with_status_200(self):
+        calls = self._calls()
+        for name, parts in SITE_ERRORS:
+            body = "".join(parts)
+            self.assertIn(name, calls)
+            for call in calls[name]:
+                with patch("requests.sessions.Session.send", _file_reply(200, body.encode(), "application/json")):
+                    with self.assertRaises(ZBApiException, msg=(name, body)) as caught:
+                        _quiet(call)
+                self.assertEqual(caught.exception.status_code, 200, (name, body))
+
+
+# Documented answers with nested values (array items, rows and their fields), for the nested-path sweep.
+NESTED_EXAMPLES = {
+    "validate_batch": (DOCUMENTED["validate_batch"], "ZBValidateBatchResponse"),
+    "guess_format": (DOCUMENTED["guess_format"], "ZBGuessFormatResponse"),
+    "find_domain": (DOCUMENTED["find_domain"], "ZBFindDomainResponse"),
+    "send_file": ('{"success":true,"message":["File Accepted"],"file_name":"f.csv","file_id":"f1"}', "ZBSendFileResponse"),
+}
+
+
+def _nested_mutations(cls, data):
+    """(path, body) for every wrong JSON type at every nested path of ``data``: each array item of a typed array
+    (an item of a string array that is not a string, an item of an object array that is not an object) and each
+    field of each item object (a type the item's model does not allow, or null for a required field)."""
+    out = []
+    for name, kinds in cls._FIELD_TYPES.items():
+        items = data.get(name)
+        if not isinstance(items, list) or not items:
+            continue
+        item_class = cls._ITEMS.get(name)
+        for index, item in enumerate(items):
+            path = f"{name}[{index}]"
+            wrong_items = ({}, 5, 5.5, True, None, [1], []) if item_class is None else ("x", 5, 5.5, True, None, [1], [])
+            for wrong in wrong_items:
+                out.append((path, {**data, name: items[:index] + [wrong] + items[index + 1:]}))
+            if item_class is None:
+                continue
+            for field, field_kinds in item_class._FIELD_TYPES.items():
+                wrongs = list(_wrong_values(field_kinds))
+                if field in item_class._required_fields(item):
+                    wrongs.append(None)
+                for wrong in wrongs:
+                    row = {**item, field: wrong}
+                    out.append((f"{path}.{field}", {**data, name: items[:index] + [row] + items[index + 1:]}))
+    return out
+
+
+class NestedPathSweepTest(TestCase):
+    """Every field-type guard on a nested value (array items, batch rows, their fields) is exercised end to end:
+    each wrong JSON type at each nested path of a documented answer is an API error with status 200."""
+
+    def test_every_nested_path_rejects_every_wrong_type(self):
+        models = {cls.__name__: cls for cls in _models()}
+        calls = client_calls(ZeroBounce(KEY), str(Path(tempfile.mkdtemp()) / "out.csv"))
+        wrong, count = [], 0
+        for name, (example, model) in NESTED_EXAMPLES.items():
+            for call in calls[name]:
+                with patch("requests.sessions.Session.send", _file_reply(200, example.encode(), "application/json")):
+                    self.assertIsInstance(_quiet(call), ZBResponse, name)
+                for path, data in _nested_mutations(models[model], json.loads(example)):
+                    count += 1
+                    body = json.dumps(data).encode()
+                    with patch("requests.sessions.Session.send", _file_reply(200, body, "application/json")):
+                        try:
+                            result = _quiet(call)
+                        except ZBApiException as error:
+                            if error.status_code != 200:
+                                wrong.append((name, path, error.status_code))
+                        except Exception as error:  # noqa: BLE001 - a raw language error is a wrong answer
+                            wrong.append((name, path, type(error).__name__))
+                        else:
+                            wrong.append((name, path, "accepted", body, result))
+        self.assertGreater(count, 200)
+        self.assertEqual(wrong, [])

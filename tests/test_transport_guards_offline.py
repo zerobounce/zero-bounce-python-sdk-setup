@@ -898,7 +898,9 @@ class WrongShapeSweepTest(TestCase):
         def bodies(name):
             if name in self.ARRAY_CALLS or name in self.EITHER_CALLS:
                 return ()
-            return (b"[]", b'[{"status":"valid"}]')
+            # Empty, one string, and positional arrays holding a call's own field values in order.
+            return (b"[]", b'["x"]', b'[{"status":"valid"}]', b'["a@example.com",10]', b'[true,"3"]',
+                    b'["a@example.com","valid"]', b'["2375323"]')
 
         self.assertEqual(self._wrong(bodies), [])
 
