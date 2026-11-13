@@ -579,21 +579,21 @@ class NestedPathSweepTest(TestCase):
 
 
 class NullAndMessageListTest(TestCase):
-    """B: null in an optional field reads as that type's empty value, never an error; a file-job message that is a
-    list of strings reads as one string joined with newlines (standard.md section 3)."""
+    """A: null in an optional field is never an error and is returned as received (None). B: a file-job message that
+    is a list of strings reads as one string joined with newlines (standard.md section 3)."""
 
     def test_null_optional_fields_are_accepted_and_read_as_empty(self):
         client = ZeroBounce(KEY)
         cases = (
             (lambda: client.validate_batch([ZBValidateBatchElement("a@example.com")]),
              '{"email_batch":null,"errors":null}',
-             lambda r: (r.email_batch, r.errors), ([], [])),
+             lambda r: (r.email_batch, r.errors), (None, None)),
             (lambda: client.find_domain(domain="example.com"),
              '{"domain":"example.com","other_domain_formats":null}',
-             lambda r: r.other_domain_formats, []),
+             lambda r: r.other_domain_formats, None),
             (lambda: client.guess_format("a@example.com"),
              '{"email":"a@example.com","other_domain_formats":null}',
-             lambda r: r.other_domain_formats, []),
+             lambda r: r.other_domain_formats, None),
             (lambda: client.file_status("f1"),
              '{"success":true,"file_id":null,"upload_date":null,"file_status":"Complete"}',
              lambda r: r.file_status, "Complete"),

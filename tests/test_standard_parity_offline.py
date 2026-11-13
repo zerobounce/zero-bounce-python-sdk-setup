@@ -491,6 +491,16 @@ class FinderMessageTest(ParityTestCase):
                 self.assertNotIn(KEY, str(caught.exception), (name, body))
                 self.assertNotIn("None", str(caught.exception), (name, body))
 
+    def test_a_message_only_body_without_text_is_a_request_failed_error(self):
+        # C: a null, blank or empty-list message is still an error, with the fallback text (never an empty one).
+        for name, call in self.FINDER_CALLS:
+            for body in ('{"message":null}', '{"message":[]}', '{"message":["  "]}', '{"Message":""}'):
+                self.serve(body)
+                with self.assertRaises(ZBApiException, msg=(name, body)) as caught:
+                    call(self.client)
+                self.assertEqual(caught.exception.status_code, 200, (name, body))
+                self.assertEqual(str(caught.exception), "Request failed", (name, body))
+
     def test_the_key_is_not_in_any_introspection_of_a_client(self):
         import pprint
 

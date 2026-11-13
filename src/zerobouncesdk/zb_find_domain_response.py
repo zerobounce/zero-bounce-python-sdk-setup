@@ -1,7 +1,7 @@
 from typing import List
 
 from . import ZBConfidence
-from ._zb_response import ARRAY, STRING, ZBResponse
+from ._zb_response import ARRAY, STRING, ZBResponse, items_as_received
 from ._zb_utils import safe_enum_convert
 from .zb_guess_format_response import ZBDomainFormat
 
@@ -44,7 +44,5 @@ class ZBFindDomainResponse(ZBResponse):
 
         self.confidence = safe_enum_convert(ZBConfidence, self.confidence, "confidence", lowercase=True)
 
-        self.other_domain_formats = [
-            ZBDomainFormat(df_data) for df_data in (data.get("other_domain_formats") or [])
-        ]
+        self.other_domain_formats = items_as_received(data, "other_domain_formats", ZBDomainFormat)
 

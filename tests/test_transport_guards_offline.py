@@ -505,6 +505,41 @@ class ResultFileErrorTest(TestCase):
                         )
 
 
+class HtmlSniffMarkerTest(TestCase):
+    """E: each marker of the HTML sniff (_looks_like_html) is tested on its own, so removing any one of them fails a
+    test. A body that is HTML only by that marker, sent as text/csv, is an error on every download and on a JSON call,
+    with no file and status 200."""
+
+    MARKERS = (
+        b"<!DOCTYPE html>\nemail,status\na@example.com,valid\n",
+        b"<html>email,status\na@example.com,valid\n",
+        b"<head>email,status\na@example.com,valid\n",
+        b"email,status\na@example.com,valid\n<body>",
+    )
+
+    def test_each_marker_alone_makes_every_download_an_error(self):
+        client = ZeroBounce(KEY)
+        downloads = sorted(name for name in _public(ZeroBounce) if name.endswith("get_file"))
+        folder = Path(tempfile.mkdtemp())
+        for body in self.MARKERS:
+            with patch("requests.sessions.Session.send", _file_reply(200, body, "text/csv")):
+                for name in downloads:
+                    for stream in (False, True):
+                        path = folder / f"{name}-{stream}.csv"
+                        with self.assertRaises(ZBApiException, msg=f"{name} stream={stream} {body!r}") as caught:
+                            getattr(client, name)("f1", str(path), stream=stream)
+                        self.assertEqual(caught.exception.status_code, 200)
+                        self.assertFalse(path.exists(), f"{name} saved {body!r}")
+
+    def test_each_marker_alone_makes_a_json_call_an_error(self):
+        client = ZeroBounce(KEY)
+        for body in self.MARKERS:
+            with patch("requests.sessions.Session.send", _file_reply(200, body, "text/csv")):
+                with self.assertRaises(ZBApiException, msg=repr(body)) as caught:
+                    _quiet(lambda: client.get_credits())
+            self.assertEqual(caught.exception.status_code, 200)
+
+
 class WarmupCsvWriteTest(TestCase):
     """A Warmup CSV saved to download_path: a failed write must not leave a truncated file behind."""
 

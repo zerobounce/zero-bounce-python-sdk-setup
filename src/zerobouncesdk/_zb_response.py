@@ -15,6 +15,12 @@ TEXT_OR_ARRAY = (str, list)
 _INTEGER_STRING = re.compile(r"-?[0-9]+")
 
 
+def items_as_received(data, name, item_class):
+    """The object items of an array field: a list (``[]`` when the field is absent), or None when the API sent null."""
+    value = data.get(name, [])
+    return None if value is None else [item_class(item) for item in value]
+
+
 class ZBFieldTypeError(ValueError):
     """A field of the response has the wrong JSON type. The text names the field, never its value."""
 

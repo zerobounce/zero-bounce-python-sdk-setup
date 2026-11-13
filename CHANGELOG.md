@@ -27,6 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The email finder and domain search answers (`guess_format`, `find_domain`, `find_email_format`) no longer raise from the response class when a full result carries a `message` key beside its fields: the result is returned. A body made only of message keys is a rejected request: it raises `ZBApiException` with status 200, the API key masked, and the text of the first non-blank message, or "Request failed" when the message is null or blank. Up to 3.0.1 the class raised for any `message` key with no status and no masking, so a key echoed in the message came back unmasked, and `"message": null` raised the error text `None`.
 
 - A file job's `message` that is a list of strings (`send_file`, `file_status`, `delete_file` and the other file calls) reads as one string, the strings joined with a newline. Up to 3.0.1 only the first string was kept.
+- `null` in `validate_batch()`'s `email_batch` and `errors`, and in `guess_format()`'s and `find_domain()`'s `other_domain_formats`, is returned as `None`, as every other optional field is. Up to 3.0.1 it raised a `TypeError`.
 
 ### Security
 
