@@ -1,4 +1,4 @@
-# Build tools for publish.yml; requirements-build.txt is the hashed lock (uv pip compile --generate-hashes --universal --python-version 3.10).
+# Build tools for publish.yml; requirements-build.txt is the hashed lock (uv pip compile --no-config --generate-hashes --universal --python-version 3.11).
 build==1.6.1
 setuptools==84.2.1
 wheel==0.48.0

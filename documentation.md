@@ -3,7 +3,7 @@
 pip install zerobouncesdk
 ```
 
-Requires Python 3.10 or newer.
+Requires Python 3.11 or newer.
 
 #### USAGE
 Import the sdk in your file:

@@ -15,7 +15,6 @@ classifiers = [
     "Programming Language :: Python",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3 :: Only",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
@@ -30,8 +29,9 @@ dependencies = [
     "idna >= 3.15",
     "certifi >= 2026.10.19",
 ]
-# The fixed requests (2.33.0+) and urllib3 (2.7.0+) releases require Python 3.10.
-requires-python = ">=3.10"
+# Python 3.10 reached end of life on 2026-10-01; 3.11 is the oldest supported release.
+# (The fixed requests 2.33.0+ and urllib3 2.7.0+ releases need 3.10 or newer.)
+requires-python = ">=3.11"
 
 [project.optional-dependencies]
 test = [

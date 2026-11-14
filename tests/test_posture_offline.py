@@ -91,7 +91,7 @@ class DockerfileTest(unittest.TestCase):
 class PackagingTest(unittest.TestCase):
     def test_classifiers_cover_ci_pythons(self):
         text = (ROOT / "pyproject.toml").read_text()
-        for v in ("3.10", "3.14", "3.15"):
+        for v in ("3.11", "3.14", "3.15"):
             self.assertIn(f"Programming Language :: Python :: {v}", text)
 
     def test_build_backend_has_upper_bounds(self):

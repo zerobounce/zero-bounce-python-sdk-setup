@@ -16,7 +16,7 @@ More information about ZeroBounce you can find in the [official documentation](h
 pip install zerobouncesdk
 ```
 
-Requires Python 3.10 or newer. The `requests` and `urllib3` releases with current security fixes need 3.10, so 2.4.0 dropped 3.7 to 3.9; on those versions pip installs `zerobouncesdk` 2.3.0, the last release that supports them.
+Requires Python 3.11 or newer. Python 3.10 reached end of life on 2026-10-01; on 3.10 pip installs `zerobouncesdk` 3.1.0, the last release that supports it. (2.4.0 dropped 3.7 to 3.9, because the `requests` and `urllib3` releases with current security fixes need 3.10; on those versions pip installs 2.3.0.)
 
 ## USAGE
 Import the sdk in your file:
@@ -621,7 +621,7 @@ except ZBException as e:
 
 ### Local setup
 ```bash
-python -m venv venv   # Python 3.10 or newer
+python -m venv venv   # Python 3.11 or newer
 source venv/bin/activate
 pip install -e ".[test]"
 pip install ruff==0.17.2

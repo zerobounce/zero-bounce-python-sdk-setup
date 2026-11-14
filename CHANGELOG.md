@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Removed
+
+- **Breaking:** Python 3.10 is no longer supported (`requires-python = ">=3.11"`). Python 3.10 reached end of life on 2026-10-01. On Python 3.10, pip installs 3.1.0, the last release that supports it. CI's floor job now builds the wheel and runs the tests on Python 3.11.
+
 ## [3.1.0] - 2026-11-15
 
 ### Changed
@@ -299,6 +305,7 @@ Published to PyPI with no changelog notes.
 
 Published to PyPI with no changelog notes.
 
+[Unreleased]: https://github.com/zerobounce/zero-bounce-python-sdk-setup/compare/v3.1.0...HEAD
 [3.1.0]: https://github.com/zerobounce/zero-bounce-python-sdk-setup/compare/v3.0.0...v3.1.0
 [3.0.1]: https://github.com/zerobounce/zero-bounce-python-sdk-setup/compare/v3.0.0...v3.0.1
 [3.0.0]: https://github.com/zerobounce/zero-bounce-python-sdk-setup/compare/v2.4.0...v3.0.0
