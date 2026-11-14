@@ -2,6 +2,8 @@
 
 import http.client
 import logging
+import socket
+import threading
 from unittest import TestCase
 from unittest.mock import patch
 
@@ -226,6 +228,57 @@ class DebugLoggingGuardTest(TestCase):
         self.addCleanup(setattr, http.client.HTTPConnection, "debuglevel", http.client.HTTPConnection.debuglevel)
         http.client.HTTPConnection.debuglevel = 1
         self.assertIn("debuglevel", self._refused())
+
+    def test_every_connection_class_debuglevel_blocks_the_send(self):
+        import urllib3.connection
+
+        for cls in (
+            http.client.HTTPSConnection,
+            urllib3.connection.HTTPConnection,
+            urllib3.connection.HTTPSConnection,
+        ):
+            with self.subTest(cls=f"{cls.__module__}.{cls.__qualname__}"):
+                self.addCleanup(setattr, cls, "debuglevel", cls.debuglevel)
+                cls.debuglevel = 1
+                self.assertIn("debuglevel", self._refused())
+                cls.debuglevel = 0
+
+    def test_a_warning_that_carries_the_url_is_redacted_not_dropped(self):
+        import urllib3
+
+        ZeroBounce(KEY)  # installs the filter
+        server = socket.socket()
+        server.bind(("127.0.0.1", 0))
+        server.listen(1)
+        self.addCleanup(server.close)
+
+        def serve():
+            conn, _ = server.accept()
+            conn.recv(65536)
+            conn.sendall(
+                b"HTTP/1.1 200 OK\r\nbad header line\r\nContent-Length: 13\r\n\r\n{\"Credits\":1}"
+            )
+            conn.close()
+
+        threading.Thread(target=serve, daemon=True).start()
+        port = server.getsockname()[1]
+        pool = urllib3.HTTPConnectionPool("127.0.0.1", port, retries=False)
+        with self.assertLogs("urllib3.connection", logging.WARNING) as logs:
+            pool.request("GET", f"/v2/getcredits?api_key={KEY}&x=1")
+        text = "\n".join(logs.output)
+        self.assertIn("Failed to parse headers", text)
+        self.assertNotIn(KEY, text)
+        self.assertIn("api_key=***", text)
+
+    def test_the_log_filter_is_installed_once(self):
+        from zerobouncesdk.zerobouncesdk import _RedactKeyFilter
+
+        for _ in range(3):
+            ZeroBounce(KEY)
+            ZeroBounceWarmup(KEY)
+        for name in ("urllib3.connection", "urllib3.connectionpool"):
+            filters = [f for f in logging.getLogger(name).filters if isinstance(f, _RedactKeyFilter)]
+            self.assertEqual(len(filters), 1)
 
     def test_the_key_is_not_logged_with_the_guard_in_place(self):
         logger = logging.getLogger("urllib3.connectionpool")

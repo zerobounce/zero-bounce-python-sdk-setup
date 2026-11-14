@@ -140,3 +140,88 @@ class TimeoutTest(_Base):
         with self.assertRaises(Exception):
             self.warmup.list_sending_accounts()
         self.assertEqual(self.sent[-1]["timeout"], (30.0, 120.0))
+
+
+class TransportRound2Test(_Base):
+    def _cut_stream(self):
+        from requests.exceptions import ChunkedEncodingError
+
+        def iter_content(self_, chunk_size=1, decode_unicode=False):
+            yield b"email,status\n" + b"a@example.com,valid\n" * 5000  # past the 64 KiB sniff window
+            yield b"b" * (70 * 1024)
+            raise ChunkedEncodingError("cut")
+
+        return patch("requests.Response.iter_content", iter_content)
+
+    def test_a_download_cut_after_the_folders_exist_removes_them(self):
+        with self._cut_stream():
+            from requests.exceptions import ChunkedEncodingError
+
+            with self.assertRaises(ChunkedEncodingError):
+                self.client.get_file("f1", str(self.folder / "m1" / "m2" / "out.csv"), stream=True)
+        self.assertFalse((self.folder / "m1").exists())
+
+    def test_a_bom_only_stream_is_an_empty_response(self):
+        self.reply = (200, BOM, "text/csv")
+        path = self.folder / "bom.csv"
+        with self.assertRaises(ZBApiException) as caught:
+            self.client.get_file("f1", str(path), stream=True)
+        self.assertIn("Empty response", str(caught.exception))
+        self.assertFalse(path.exists())
+
+    def test_a_new_file_gets_the_umask_mode_not_0600(self):
+        old = os.umask(0o022)
+        try:
+            for name, call in self.downloads():
+                path = self.folder / f"{name}-new.csv"
+                call(str(path))
+                self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o644, name)
+        finally:
+            os.umask(old)
+
+    def test_a_read_only_folder_is_refused_before_sending(self):
+        if os.geteuid() == 0:
+            self.skipTest("root ignores folder permissions")
+        locked = self.folder / "locked"
+        locked.mkdir()
+        os.chmod(locked, 0o500)
+        self.addCleanup(os.chmod, locked, 0o700)
+        for name, call in self.downloads():
+            with self.subTest(call=name):
+                with self.assertRaises(ZBClientException) as caught:
+                    call(str(locked / "sub" / "out.csv"))
+                self.assertIn("permission denied", str(caught.exception))
+                self.assertIn(str(locked), str(caught.exception))
+                self.assertNotIn(KEY, str(caught.exception))
+        self.assertEqual(self.sent, [])
+
+    def test_a_write_failure_after_the_request_is_a_client_exception(self):
+        for name, call in self.downloads():
+            with self.subTest(call=name):
+                path = self.folder / f"{name}-w.csv"
+                with patch("zerobouncesdk.zerobouncesdk.os.replace", side_effect=PermissionError(13, "Permission denied")):
+                    with self.assertRaises(ZBClientException) as caught:
+                        call(str(path))
+                self.assertIn(str(path), str(caught.exception))
+                self.assertIn("Permission denied", str(caught.exception))
+                self.assertNotIn(KEY, str(caught.exception))
+
+    def test_a_link_to_a_directory_names_the_link_problem(self):
+        folder = self.folder / "dir"
+        folder.mkdir()
+        link = self.folder / "dirlink"
+        os.symlink(folder, link)
+        with self.assertRaises(ZBClientException) as caught:
+            self.client.get_file("f1", str(link))
+        self.assertIn("link to a directory", str(caught.exception))
+
+    def test_a_self_referencing_link_is_refused_before_sending(self):
+        loop = self.folder / "loop"
+        os.symlink(loop, loop)
+        for name, call in self.downloads():
+            with self.subTest(call=name):
+                with self.assertRaises(ZBClientException) as caught:
+                    call(str(loop))
+                self.assertIn("loops", str(caught.exception))
+        self.assertTrue(loop.is_symlink())
+        self.assertEqual(self.sent, [])

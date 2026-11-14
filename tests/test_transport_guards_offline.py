@@ -23,7 +23,7 @@ from requests import Response
 from requests.exceptions import RequestException
 
 from tests import test_standard_parity_offline as parity
-from zerobouncesdk import ZBApiException, ZeroBounce, ZeroBounceWarmup
+from zerobouncesdk import ZBApiException, ZBClientException, ZeroBounce, ZeroBounceWarmup
 
 try:
     import resource
@@ -438,11 +438,14 @@ class ResultFileErrorTest(TestCase):
                 resource.setrlimit(resource.RLIMIT_FSIZE, (len(csv) // 2, hard))
                 try:
                     download(str(paths[name]))
-                except OSError as error:
-                    failed[name] = error.errno
+                except ZBClientException as error:
+                    failed[name] = str(error)
                 finally:
                     resource.setrlimit(resource.RLIMIT_FSIZE, (soft, hard))
-        self.assertEqual(failed, {name: errno.EFBIG for name in calls})
+        for name, message in failed.items():
+            self.assertIn(os.strerror(errno.EFBIG), message, name)
+            self.assertIn(str(paths[name]), message, name)
+        self.assertEqual(sorted(failed), sorted(calls))
         for name, path in paths.items():
             self.assertEqual(path.read_bytes(), b"keep me\n", f"{name} truncated or deleted the existing file")
         self.assertEqual(sorted(p.name for p in self.folder.iterdir()), sorted(p.name for p in paths.values()))
@@ -456,7 +459,7 @@ class ResultFileErrorTest(TestCase):
         self.addCleanup(folder.chmod, 0o755)
         with patch("requests.sessions.Session.send", _file_reply(200, b"email\na@example.com\n", "text/csv")):
             for name, download in calls.items():
-                with self.assertRaises(PermissionError, msg=name):
+                with self.assertRaises(ZBClientException, msg=name):
                     download(str(paths[name]))
                 self.assertEqual(paths[name].read_bytes(), b"keep me\n", name)
         self.assertEqual(sorted(p.name for p in folder.iterdir()), sorted(p.name for p in paths.values()))
@@ -573,9 +576,9 @@ class WarmupCsvWriteTest(TestCase):
         with patch("os.fdopen", disk_full_open):
             for name, download in self.downloads.items():
                 path = self.folder / f"{name}.csv"
-                with self.assertRaises(OSError, msg=name) as caught:
+                with self.assertRaises(ZBClientException, msg=name) as caught:
                     download(str(path))
-                self.assertEqual(caught.exception.errno, errno.ENOSPC)
+                self.assertIn(os.strerror(errno.ENOSPC), str(caught.exception))
                 self.assertFalse(path.exists(), f"{name} left a partial file")
 
     def test_a_file_that_cannot_be_opened_is_left_alone(self):
@@ -586,7 +589,7 @@ class WarmupCsvWriteTest(TestCase):
             raise PermissionError(errno.EACCES, "Permission denied")
 
         with patch("os.fdopen", refuse):
-            with self.assertRaises(PermissionError):
+            with self.assertRaises(ZBClientException):
                 self.warmup.download_seeds(str(path))
         self.assertEqual(path.read_bytes(), b"keep me\n")
 
@@ -603,7 +606,7 @@ class WarmupCsvWriteTest(TestCase):
             for name, download in self.downloads.items():
                 path = self.folder / f"{name}.csv"
                 path.write_bytes(b"keep me\n")
-                with self.assertRaises(OSError, msg=name):
+                with self.assertRaises(ZBClientException, msg=name):
                     download(str(path))
                 self.assertEqual(path.read_bytes(), b"keep me\n", f"{name} truncated or deleted the existing file")
                 self.assertEqual([p.name for p in self.folder.iterdir() if p.name.startswith(".zb-")], [], name)

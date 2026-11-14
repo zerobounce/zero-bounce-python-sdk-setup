@@ -40,6 +40,12 @@ zero_bounce = ZeroBounce("<YOUR_API_KEY>", base_url=ZBApiUrl.API_DEFAULT_URL)
 zero_bounce = ZeroBounce("<YOUR_API_KEY>", base_url="https://custom-api.example.com/v2")
 ```
 
+**Timeout**: `ZeroBounce` and `ZeroBounceWarmup` take `timeout=timedelta(...)` (default 120 seconds). It applies to each request as a connect timeout of at most 30 seconds and a read timeout of the given value, and the read timeout is per read from the socket, not a limit on the whole call. A zero, negative or non-`timedelta` value raises `ZBClientException` at construction.
+```python
+from datetime import timedelta
+zero_bounce = ZeroBounce("<YOUR_API_KEY>", timeout=timedelta(seconds=60))
+```
+
 **Available API regions:**
 - `ZBApiUrl.API_DEFAULT_URL` - Default ZeroBounce API (https://api.zerobounce.net/v2/)
 - `ZBApiUrl.API_USA_URL` - USA region API (https://api-us.zerobounce.net/v2/)
@@ -572,3 +578,11 @@ zero_bounce.BULK_ROOT_URL = "https://bulkapi.zerobounce.net"                    
 ```
 
 Each of these must be an `https://` URL; the client refuses to send the key anywhere else.
+
+#### Security
+
+- Keep API keys on a trusted server, not in mobile apps or browser JavaScript.
+- An API key with whitespace of any kind, control or invisible (Unicode format) characters anywhere in it, or any non-ASCII character, is rejected with a `ZBClientException` that does not quote the key. Strip a key read from a file before passing it.
+- Every base URL, including the per-API `*_BASE_URL` attributes, must be an absolute `https://` URL with a valid host and port, no userinfo, and no whitespace, control characters or backslash. Do not pass end-user-controlled hosts into those settings. The client never follows redirects and masks the key in every exception it raises.
+- The validation API sends `api_key` in the query string for `GET` requests, so do not log full request URLs, and prefer `use_post=True` where a method offers it.
+- Debug logging: the SDK refuses to send (`ZBClientException`, nothing is sent) while the `urllib3`, `requests` or `http.client` loggers are enabled for DEBUG, including through a root logger at DEBUG, or while `http.client.HTTPConnection.debuglevel` is above 0, because those would write the key to the log. Keep them at INFO or above in production.

@@ -39,6 +39,24 @@ class PublishWorkflowTest(unittest.TestCase):
         for name in ("test", "publish", "release"):
             self.assertIn("ref: ${{ needs.validate-tag.outputs.tag_sha }}", self.jobs[name], name)
 
+    def test_only_publish_job_has_id_token(self):
+        for name, body in self.jobs.items():
+            if name == "publish":
+                self.assertIn("id-token: write", body)
+            else:
+                self.assertNotIn("id-token", body, name)
+
+    def test_build_is_without_isolation_with_hashed_tools(self):
+        self.assertIn("python -m build --no-isolation", self.jobs["publish"])
+        self.assertIn("--require-hashes -r requirements-build.txt", self.jobs["publish"])
+
+    def test_every_checkout_drops_credentials(self):
+        checkouts = re.findall(r"(?s)uses: actions/checkout@.*?(?=\n      - |\Z)", self.text)
+        self.assertGreaterEqual(len(checkouts), 4)
+        for block in checkouts:
+            self.assertIn("persist-credentials: false", block)
+            self.assertNotIn("persist-credentials: true", block)
+
     def test_actions_are_sha_pinned(self):
         for line in re.findall(r"(?m)^\s+uses: (\S+)", self.text):
             self.assertRegex(line, r"@[0-9a-f]{40}$")

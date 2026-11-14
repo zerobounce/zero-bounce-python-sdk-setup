@@ -44,8 +44,21 @@ class ZBResponse(object):
     def __init__(self, data=None):
         self.__dict__ = data if data is not None else {}
 
+    def _fields(self) -> dict:
+        """Every documented field (None when the API did not send it), then any extra key as received."""
+        fields = {}
+        for cls in reversed(type(self).__mro__):
+            for name in getattr(cls, "__annotations__", {}):
+                if not name.startswith("_"):
+                    fields[name] = getattr(type(self), name, None)
+        fields.update(self.__dict__)
+        return fields
+
+    def __repr__(self) -> str:
+        return f"{type(self).__name__}({self._fields()!r})"
+
     def __str__(self) -> str:
-        return str(self.__class__.__name__) + "=" + str(self.__dict__)
+        return str(self.__class__.__name__) + "=" + str(self._fields())
 
     @classmethod
     def _required_fields(cls, data):
@@ -85,12 +98,19 @@ class ZBFileResponse(ZBResponse):
 
     _FIELD_TYPES = {"success": FLAG, "message": TEXT_OR_ARRAY}
 
+    @classmethod
+    def _check_values(cls, data):
+        success = data.get("success")
+        if isinstance(success, str) and success.strip().lower() not in ("true", "false", "1", "0"):
+            raise ZBFieldTypeError("success has the wrong type")
+
     def __init__(self, data):
         super().__init__(data)
         if isinstance(self.message, list):
             self.message = "\n".join(self.message)
         if isinstance(self.success, str):
-            if self.success == "True":
+            text = self.success.strip().lower()
+            if text in ("true", "1"):
                 self.success = True
-            elif self.success == "False":
+            elif text in ("false", "0"):
                 self.success = False

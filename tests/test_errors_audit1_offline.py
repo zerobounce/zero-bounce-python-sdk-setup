@@ -20,6 +20,10 @@ MESSAGE_ONLY = [
 # Raw-JSON calls, and the calls whose documented success is a bare message or empty.
 NOT_TYPED = {
     "add_filter", "delete_filter", "list_filters", "delete_inbox_placement_test", "set_inbox_placement_webhook",
+    # Owner decision 2026-11-14: all seven Inbox Placement calls and the list-evaluator result are exempt.
+    "get_inbox_placement_providers", "get_inbox_placement_test_types", "create_inbox_placement_test",
+    "get_inbox_placement_test", "list_inbox_placement_tests", "get_inbox_placement_webhook",
+    "get_list_evaluator_result",
     "get_file", "scoring_get_file", "email_finder_get_file", "domain_search_get_file",
 }
 

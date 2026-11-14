@@ -1,4 +1,5 @@
 import contextlib
+import errno
 import html
 import http.client
 import ipaddress
@@ -195,17 +196,72 @@ _TRANSPORT_LOGGERS = (
 )
 
 
+def _debuglevel_holders():
+    """The connection classes whose ``debuglevel`` makes the stack print the request line (with the key) to stdout:
+    ``http.client`` and ``urllib3``'s own subclasses, plus whatever connection class a urllib3 pool is set to use."""
+    import urllib3.connection
+    import urllib3.connectionpool
+
+    holders = [
+        ("http.client.HTTPConnection", http.client.HTTPConnection),
+        ("http.client.HTTPSConnection", http.client.HTTPSConnection),
+        ("urllib3.connection.HTTPConnection", urllib3.connection.HTTPConnection),
+        ("urllib3.connection.HTTPSConnection", urllib3.connection.HTTPSConnection),
+    ]
+    for pool in (urllib3.connectionpool.HTTPConnectionPool, urllib3.connectionpool.HTTPSConnectionPool):
+        cls = getattr(pool, "ConnectionCls", None)
+        if cls is not None:
+            holders.append((f"{pool.__name__}.ConnectionCls", cls))
+    return holders
+
+
+_KEY_IN_TEXT = re.compile(r"(?i)\b(api[_-]?key|apikey)(=|%3d)[^&\s)\"'#]*")
+
+
+class _RedactKeyFilter(logging.Filter):
+    """Masks ``api_key=<value>`` in what urllib3 logs at WARNING and above (e.g. ``Failed to parse headers
+    (url=https://…/getcredits?api_key=<key>)``). Records are not dropped and levels are not changed."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        try:
+            text = record.getMessage()
+        except Exception:
+            return True
+        redacted = _KEY_IN_TEXT.sub(lambda m: m.group(1) + m.group(2) + "***", text)
+        if redacted != text:
+            record.msg = redacted
+            record.args = None
+        return True
+
+
+_REDACTED_LOGGERS = ("urllib3.connection", "urllib3.connectionpool")
+
+
+def _install_log_redaction() -> None:
+    """Install the key-masking filter on the urllib3 connection loggers, once."""
+    for name in _REDACTED_LOGGERS:
+        logger = logging.getLogger(name)
+        if not any(isinstance(f, _RedactKeyFilter) for f in logger.filters):
+            logger.addFilter(_RedactKeyFilter())
+
+
+_install_log_redaction()
+
+
 def _check_transport_logging() -> None:
     """Refuse to send while the HTTP stack would write the API key to a log or to stdout.
 
     ``urllib3.connectionpool`` logs ``"GET /v2/getcredits?api_key=<key> HTTP/1.1"`` at DEBUG, and
-    ``http.client`` prints the request line and headers when its ``debuglevel`` is above 0.
+    ``http.client`` / ``urllib3.connection`` print the request line and headers when their ``debuglevel`` is
+    above 0. WARNING-level records that carry the URL are masked by a filter instead.
     """
-    if http.client.HTTPConnection.debuglevel > 0:
-        raise ZBClientException(
-            "http.client debug output (HTTPConnection.debuglevel) is on and would print your API key; "
-            "set http.client.HTTPConnection.debuglevel = 0."
-        )
+    _install_log_redaction()
+    for label, cls in _debuglevel_holders():
+        if getattr(cls, "debuglevel", 0) > 0:
+            raise ZBClientException(
+                f"HTTP debug output ({label}.debuglevel) is on and would print your API key; "
+                f"set {label}.debuglevel = 0."
+            )
     for name in _TRANSPORT_LOGGERS:
         if logging.getLogger(name).isEnabledFor(logging.DEBUG):
             raise ZBClientException(
@@ -440,16 +496,35 @@ def _download_target(download_path) -> str:
         raise ZBClientException("Empty parameter: download_path")
     if path[-1] in {"/", os.sep, os.altsep or "/"}:
         raise ZBClientException("Invalid parameter: download_path (ends with a path separator; give a file path)")
-    if os.path.isdir(path):
-        raise ZBClientException("Invalid parameter: download_path (is a directory, give a file path)")
     if os.path.islink(path):
+        try:
+            os.stat(path)
+        except OSError as e:
+            if e.errno == errno.ELOOP:
+                raise ZBClientException("Invalid parameter: download_path (a link that loops back to itself)") from None
         target = os.path.realpath(path)
         if os.path.isdir(target):
             raise ZBClientException("Invalid parameter: download_path (a link to a directory, give a file path)")
         if not os.path.isdir(os.path.dirname(target) or "."):
             raise ZBClientException("Invalid parameter: download_path (a link whose target directory does not exist)")
-        return target
-    return path
+    elif os.path.isdir(path):
+        raise ZBClientException("Invalid parameter: download_path (is a directory, give a file path)")
+    else:
+        target = path
+    _check_writable(target)
+    return target
+
+
+def _check_writable(target: str) -> None:
+    """Refuse, before anything is sent, a target whose nearest existing folder cannot be written to."""
+    folder = os.path.dirname(target) or "."
+    while not os.path.isdir(folder):
+        parent = os.path.dirname(folder)
+        if not parent or parent == folder:
+            return
+        folder = parent
+    if not os.access(folder, os.W_OK | os.X_OK):
+        raise ZBClientException(f"Cannot save the download to {target}: permission denied (folder {folder} is not writable)")
 
 
 def _save_file(target: str, chunks) -> None:
@@ -482,10 +557,13 @@ def _save_file(target: str, chunks) -> None:
             with contextlib.suppress(OSError):
                 os.unlink(partial)
             raise
-    except BaseException:
+    except BaseException as e:
         for path in created:  # deepest first
             with contextlib.suppress(OSError):
                 os.rmdir(path)
+        if isinstance(e, OSError) and not isinstance(e, RequestException):
+            reason = e.strerror or type(e).__name__
+            raise ZBClientException(f"Cannot save the download to {target}: {reason}") from None
         raise
 
 
@@ -649,10 +727,26 @@ _MESSAGE_KEYS = ("error", "message", "error_message", "Message", "Error", "detai
 
 
 def _message_text(value):
-    """The text of a message value: a non-blank string, or the first non-blank string of a list; else None."""
+    """The text of a message value: a non-blank string, or the non-blank strings of a list joined with a line
+    break; else None."""
     if isinstance(value, list):
-        value = next((item for item in value if isinstance(item, str) and item.strip()), None)
+        value = "\n".join(item for item in value if isinstance(item, str) and item.strip()) or None
     return value if isinstance(value, str) and value.strip() else None
+
+
+def _failure_text(payload) -> str:
+    """The message of a ``"success": false`` body: the text of whichever message key holds text; the fixed
+    no-text message when a key holds something that is not text (an object, a number); else "Request failed"."""
+    keys = ("message", "error_message", "Message", "Error", "detail")
+    for key in keys:
+        text = _message_text(payload.get(key))
+        if text:
+            return text
+    for key in keys:
+        value = payload.get(key)
+        if value is not None and not (isinstance(value, str) and not value.strip()) and value != []:
+            return _NO_MESSAGE_TEXT
+    return "Request failed"
 
 
 def _form_data(data):
@@ -723,15 +817,16 @@ class ZeroBounce(_RefusesPickling):
         base_url: Optional[Union[ZBApiUrl, str]], default ZBApiUrl.API_DEFAULT_URL
             The base URL for the API. Can be a ZBApiUrl enum value, a custom URL string,
             or None to use the default URL.
-        timeout: Optional[timedelta], default timeout to use for API requests.
+        timeout: Optional[timedelta], default 120 seconds.
+            The per-read socket timeout (how long to wait for the server to send the next bytes), with a separate
+            30 second connect timeout. It is not a total deadline: a server that keeps sending slowly never times out.
 
         Raises
         ------
         ZBClientException
             If api_key is empty
         """
-        if not api_key.strip():
-            raise ZBClientException("Empty parameter: api_key")
+        _require_text(api_key, "api_key")
         _check_api_key(api_key)
         self._api_key = _Secret(api_key)
         
@@ -832,10 +927,7 @@ class ZeroBounce(_RefusesPickling):
             success = payload.get("success")
             failed = _reads_as_false(success)
             if failed:
-                message = payload.get("message") or payload.get("error_message") or "Request failed"
-                if isinstance(message, list):
-                    message = message[0] if message else "Request failed"
-                text = str(message).strip() or "Request failed"
+                text = _failure_text(payload)
                 raise ZBApiException(self._redact(_strip_error_prefix(text)), status_code=status)
             # A dead or invalid key on a 2xx: no "success" and a non-empty "error_message".
             error_message = payload.get("error_message")
@@ -845,6 +937,9 @@ class ZeroBounce(_RefusesPickling):
             # keys is how they report a rejected request (LIVE: a dead key gets {"Message": "Invalid API key..."}).
             # Not for validate, whose greylist answer {"Message": "..."} is a result.
             greylist = greylist_ok and set(payload) == {"Message"}
+            if greylist and not _message_text(payload["Message"]):
+                # A greylist answer carries its text; a blank one is an error, not a result with no text.
+                raise ZBApiException(_NO_MESSAGE_TEXT, status_code=status)
             if message_only_is_error and not greylist and "success" not in payload and all(
                 key in _MESSAGE_KEYS for key in payload
             ):
@@ -859,7 +954,9 @@ class ZeroBounce(_RefusesPickling):
             raise ZBApiException(_shape_message(payload, shape), status_code=status)
         return payload
 
-    def _typed(self, response, response_class, shape=dict, message_only_is_error: bool = False):
+    def _typed(
+        self, response, response_class, shape=dict, message_only_is_error: bool = False, message_only_ok: bool = False
+    ):
         """``response_class`` built from the JSON object (or ``shape``) of ``response``.
 
         A field of the wrong shape (e.g. ``"email_batch": 5``) is an API error with the HTTP status, not the
@@ -869,7 +966,10 @@ class ZeroBounce(_RefusesPickling):
         # {"Message": "..."} as a result. The S3 listing is a function, not a response class, and has its own check.
         is_class = isinstance(response_class, type)
         payload = self._read_json_payload(
-            response, message_only_is_error or is_class, shape, greylist_ok=response_class is ZBValidateResponse
+            response,
+            (message_only_is_error or is_class) and not message_only_ok,
+            shape,
+            greylist_ok=response_class is ZBValidateResponse,
         )
         # Field types are part of the shape: a field of another JSON type (or a required one missing) is an API
         # error with the HTTP status, never a coerced or defaulted result. The text names the field only.
@@ -989,6 +1089,7 @@ class ZeroBounce(_RefusesPickling):
         shape=dict,
         response_class=None,
         message_only_is_error: bool = False,
+        message_only_ok: bool = False,
     ):
         """``bearer`` sends the key as ``Authorization: Bearer`` instead of an ``api_key`` parameter.
 
@@ -1031,7 +1132,7 @@ class ZeroBounce(_RefusesPickling):
         if empty_is_success and 200 <= response.status_code < 300 and _response_text(response) == "":
             return None
         if response_class is not None:
-            return self._typed(response, response_class, shape, message_only_is_error)
+            return self._typed(response, response_class, shape, message_only_is_error, message_only_ok)
         return self._read_json_payload(response, message_only_is_error, shape=shape)
 
     def _send_bulk_root_multipart(
@@ -1131,7 +1232,7 @@ class ZeroBounce(_RefusesPickling):
             sniffed = head.lstrip(b"\xef\xbb\xbf").lstrip()[:1]
             might_be_error = (
                 not 200 <= response.status_code < 300
-                or not head.strip()
+                or not head.lstrip(b"\xef\xbb\xbf").strip()
                 or _is_json_type(content_type)
                 or _looks_like_html(head_str, content_type)
                 or sniffed in (b"{", b"[")
@@ -1428,6 +1529,10 @@ class ZeroBounce(_RefusesPickling):
         """
         if not email_batch:
             raise ZBClientException("Empty parameter: email_batch")
+        if not isinstance(email_batch, (list, tuple)) or not all(
+            isinstance(element, ZBValidateBatchElement) for element in email_batch
+        ):
+            raise ZBClientException("Invalid parameter: email_batch must be a list of ZBValidateBatchElement")
         self._check_validate_batch_timeout(timeout)
 
         payload = {
@@ -2083,6 +2188,7 @@ class ZeroBounce(_RefusesPickling):
             f"{_root(self.LIST_EVALUATOR_BASE_URL)}/{_path_segment(file_id, 'file_id')}/",
             params={"api_key": self._api_key.value},
             response_class=ZBListEvaluatorResponse,
+            message_only_ok=True,  # its documented success can be a message
         )
 
     def send_evaluated_file(self, file_id: str) -> ZBSendFileResponse:
@@ -2348,11 +2454,11 @@ class ZeroBounce(_RefusesPickling):
         dict with ``emailProviders`` and ``gatewayProviders``; each has ``items`` of
         ``{id, name, location, seedCount, seedIds}``.
         """
-        return self._request_json("GET", f"{_root(self.INBOX_PLACEMENT_BASE_URL)}/providers", bearer=True, message_only_is_error=True)
+        return self._request_json("GET", f"{_root(self.INBOX_PLACEMENT_BASE_URL)}/providers", bearer=True)
 
     def get_inbox_placement_test_types(self):
         """Supported test types and the default one (GET /api/ipt/test-types)."""
-        return self._request_json("GET", f"{_root(self.INBOX_PLACEMENT_BASE_URL)}/test-types", bearer=True, message_only_is_error=True)
+        return self._request_json("GET", f"{_root(self.INBOX_PLACEMENT_BASE_URL)}/test-types", bearer=True)
 
     def create_inbox_placement_test(
         self,
@@ -2422,7 +2528,7 @@ class ZeroBounce(_RefusesPickling):
             body["providers"] = list(providers)
         if webhook_url is not None:
             body["webhookUrl"] = webhook_url
-        return self._request_json("POST", f"{_root(self.INBOX_PLACEMENT_BASE_URL)}/test", json=body, bearer=True, message_only_is_error=True)
+        return self._request_json("POST", f"{_root(self.INBOX_PLACEMENT_BASE_URL)}/test", json=body, bearer=True)
 
     def get_inbox_placement_test(self, test_id: Union[int, str]):
         """A test and its placement results (GET /api/ipt/test/{id}).
@@ -2433,7 +2539,7 @@ class ZeroBounce(_RefusesPickling):
         counts, ``percentages``, ``results`` and ``seeds``.
         """
         path = self._ipt_test_path(test_id)
-        return self._request_json("GET", f"{_root(self.INBOX_PLACEMENT_BASE_URL)}/test/{path}", bearer=True, message_only_is_error=True)
+        return self._request_json("GET", f"{_root(self.INBOX_PLACEMENT_BASE_URL)}/test/{path}", bearer=True)
 
     def list_inbox_placement_tests(
         self,
@@ -2477,7 +2583,7 @@ class ZeroBounce(_RefusesPickling):
             params["page"] = page
         if page_size is not None:
             params["page_size"] = page_size
-        return self._request_json("GET", f"{_root(self.INBOX_PLACEMENT_BASE_URL)}/tests", params=params, bearer=True, message_only_is_error=True)
+        return self._request_json("GET", f"{_root(self.INBOX_PLACEMENT_BASE_URL)}/tests", params=params, bearer=True)
 
     def delete_inbox_placement_test(self, test_id: Union[int, str]):
         """Delete a finished test (DELETE /api/ipt/test/{id}). A running test cannot be deleted.
@@ -2492,7 +2598,7 @@ class ZeroBounce(_RefusesPickling):
     def get_inbox_placement_webhook(self):
         """The webhook URL saved on this API key (GET /api/ipt/webhook); empty when none is set."""
         return self._request_json(
-            "GET", f"{_root(self.INBOX_PLACEMENT_BASE_URL)}/webhook", bearer=True, message_only_is_error=True
+            "GET", f"{_root(self.INBOX_PLACEMENT_BASE_URL)}/webhook", bearer=True
         )
 
     def set_inbox_placement_webhook(self, webhook_url: str):

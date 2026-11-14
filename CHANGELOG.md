@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Behaviour change:** all seven Inbox Placement calls (`get_inbox_placement_providers`, `get_inbox_placement_test_types`, `create_inbox_placement_test`, `get_inbox_placement_test`, `list_inbox_placement_tests`, `get_inbox_placement_webhook`, `set_inbox_placement_webhook`) and `get_list_evaluator_result` return a message-only body (`{"Message": "..."}`, `{"detail": "..."}`, `{}`) as data. Before, six of the IPT calls and the list-evaluator result raised `ZBApiException` on it. A non-2xx status, an `error` key and `"success": false` still raise. Matches Java 3.1.0.
+- **Behaviour change:** `ZeroBounceWarmup.add_sending_account` builds the documented body like Java 3.1.0. `email_content` takes `company_name`, `company_website`, `company_description`, `types_of_emails`, `example_email`; the old `website` key is sent as `company_website` (unless `company_website` is set too); `industry` and `managed_sending["daily_limit"]` are no longer sent and raise a `UserWarning`; any other unknown key is not sent and raises a `UserWarning` naming it. String fields and `timezone` must be strings. Before, both dicts were sent exactly as given, so `website` and `daily_limit` reached the API, which ignores them.
+- **Behaviour change:** a list `message` (or `error`) is joined with line breaks; before only the first item was shown.
+- **Behaviour change:** `ZBFileResponse.success` (send_evaluated_file, delete, file status, uploads) must be a boolean or a string `true`/`false`/`1`/`0`; any other string (`"yes"`) is an error with status 200 naming `success`. Before it was kept as the raw string. `null` is still accepted and returned as `None`.
+- `repr()` and `str()` of every response list every documented field (`None` when not sent) plus extra keys; before `str` showed only the keys present and there was no `repr`. Responses never hold the API key.
+- Documentation: README and documentation.md now describe the current API key rules (whitespace, control and invisible characters anywhere, non-ASCII) and base URL rules (https, valid host and port, no userinfo, no whitespace or backslash); documentation.md gains a Security section; both document `timeout=timedelta(...)` (default 120 s, 30 s connect limit, per-read timeout, zero/negative/non-timedelta refused).
 - **Behaviour change:** a zero, negative or non-`timedelta` `timeout` is refused at construction (`ZeroBounce` and `ZeroBounceWarmup`) with `ZBClientException`; before, every later call failed with a urllib3 `ValueError`.
 - **Behaviour change:** `validate(timeout=...)` and `validate_batch(timeout=...)` accept whole seconds only (3-60, 10-120); `3.5` and `"10"` raise `ZBClientException` instead of being sent or raising `TypeError`.
 - The source distribution now carries the whole offline test set (`tests/__init__.py`, `tests/zero_bounce_test_case.py`, `tests/fixtures/strict-json-corpus.tsv` and every `tests/test_*.py`), so `pytest` runs from the unpacked sdist. Up to 3.0.0 the fixture and the test base class were missing and the suites could not run there. The opt-in live suite stays out.
@@ -17,6 +23,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Behaviour change:** a download (`get_file`, `scoring_get_file`, Warmup `download_seeds` / `download_statistics`) that cannot be written locally now raises `ZBClientException` naming the path and the operating system's reason (for example "Permission denied", "No space left on device"). Before, callers got a raw `OSError` / `PermissionError`. A target in a folder you cannot write to is refused before the request is sent, so no credits are spent on a download that cannot be saved.
+- **Behaviour change:** a `download_path` that is a symbolic link looping back to itself is refused before the request is sent ("a link that loops back to itself"). Before, the request was sent and the link replaced. A link to a directory now gets its specific message ("a link to a directory") instead of the generic directory one.
+- A streamed download whose body is only a UTF-8 byte-order mark is now an error ("Empty response from ZeroBounce (HTTP 200)") and saves nothing, as the non-streamed path and Warmup already did. Before, a file containing just the BOM was saved.
+- Folders created for a download are removed again when the download fails part-way (now covered by a test that cuts a streamed body after the folders exist).
+- `timeout` documentation: it is the per-read socket timeout with a separate 30 second connect timeout, not a total deadline (docstrings and README).
+- `ZeroBounce(None)`, `ZeroBounce(5)` and `ZeroBounceWarmup(5)` raise `ZBClientException` ("Empty parameter: api_key" / "Invalid parameter: api_key must be a string"); before they raised `AttributeError`.
+- `validate_batch` with plain dicts, strings or other non-`ZBValidateBatchElement` items raises `ZBClientException` before sending; before it raised `AttributeError: 'dict' object has no attribute 'to_json'`.
+- `{"success": false, "message": {"code": 1}}` (or a list of non-strings, or a number) gives the fixed "ZeroBounce returned an error with no message text." instead of a Python repr; `{"success": false, "Message": "Bad thing"}` (or `detail`, `Error`) gives that text instead of "Request failed".
+- validate's greylist answer with a blank or null `Message` is an error with status 200 ("ZeroBounce returned an error with no message text."), not a result with blank text.
+- `update_sending_account` with a non-boolean `auto_enable` says "Invalid parameter: auto_enable (must be True or False)" instead of "Empty parameter".
+- CHANGELOG: 2.1.0 is marked "tagged, never published", and the other unpublished tags (v2.1.1 to v2.1.9, v2.2.1) are listed.
 - **Behaviour change:** a download whose body is any JSON object or array (also after a UTF-8 BOM) or whose content type is `application/json` or `*+json` (e.g. `application/problem+json`) is now an error with its HTTP status and saves nothing, on plain and streamed `get_file` calls (all products) and Warmup CSV downloads. Before, only objects with a success/message/error key were caught, `[...]` was saved by the streamed path, and a BOM hid JSON from the check.
 - An existing download file keeps its permissions (a 0600 file no longer becomes 0644). Same for Warmup.
 - A symbolic link as `download_path` is written through: the file behind it is replaced and the link stays (before, the link was replaced by a regular file). A link whose target directory is missing is refused before sending.
@@ -50,6 +67,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **Behaviour change:** the debug-output guard used to check only `http.client.HTTPConnection.debuglevel`. Setting `debuglevel = 1` on `http.client.HTTPSConnection` or on urllib3's own `HTTPConnection` / `HTTPSConnection` printed `send: b'GET /v2/getcredits?api_key=<key> ...'` to stdout and the SDK still sent. Now all of those classes (and the connection class urllib3's pools use) are checked, and the SDK raises `ZBClientException` before sending while any has `debuglevel` above 0, naming the class.
+- urllib3's WARNING `Failed to parse headers (url=https://.../getcredits?api_key=<key>)` (a malformed response header) wrote the key to the log. The SDK now installs, once, a logging filter on `urllib3.connection` and `urllib3.connectionpool` that masks `api_key=<value>` (any spelling, any case) in those records. Records are not dropped and levels are not changed. Documented in the README.
 - **Behaviour change:** The SDK refuses to send (`ZBClientException`, nothing is sent) while `urllib3.connectionpool` (or `urllib3`, `urllib3.connection`, `urllib3.poolmanager`, `urllib3.response`, `urllib3.util.retry`, `requests`, `http.client`) is enabled for DEBUG, or `http.client.HTTPConnection.debuglevel` is above 0. Before, `urllib3` wrote `GET /v2/getcredits?api_key=<key>` to the log at DEBUG. Applies to both clients; documented in the README Security section.
 - Error text and logs no longer leak the API key, the Warmup key or the SMTP password when the server echoes it in another letter case (an upper-cased key) or as HTML entities (`&#39;`, `&#x27;`, `&amp;`, `&lt;`, `&gt;`, `&quot;`) or backslash-escaped quotes (`\'`, `\"`). Redaction is now case-insensitive, and the "any decoded view still holds the secret" check also decodes HTML entities and backslash-escaped quotes.
 - **Behaviour change:** `ZeroBounce(api_key)` and `ZeroBounceWarmup(api_key)` refuse a key holding whitespace of any kind (including NBSP, U+0085, U+2028), control or Unicode format characters (U+200B, U+FEFF, U+180E, U+2060) anywhere in it, and any non-ASCII character. Before, only surrounding whitespace and control characters below U+0020 were refused, so such keys were accepted and failed (or leaked) at send time. Messages: `api_key has whitespace, control or invisible characters` and `api_key has characters that cannot be sent in an HTTP header` (the old `api_key has surrounding whitespace or control characters` is gone), same as Android and C#.
@@ -204,13 +223,17 @@ No changes to the package; CI action updates only.
 
 Published to PyPI with no changelog notes.
 
+## Tags never published
+
+These tags exist in the repository but were never uploaded to PyPI and have no changelog entries of their own: v2.1.1, v2.1.2, v2.1.3, v2.1.4, v2.1.5, v2.1.6, v2.1.7, v2.1.8 and v2.1.9 (v2.1.9 also has a GitHub release), and v2.2.1. Their changes shipped in the next version that is on PyPI (2.1.10 and 2.2.2). v1.1.3 and v2.1.0 have their own entries below, marked the same way.
+
 ## [2.1.10] - 2026-03-03
 
 ### Changed
 
 - License the project under MIT.
 
-## [2.1.0] - 2026-03-03
+## [2.1.0] - 2026-03-03 (tagged, never published)
 
 ### Added
 
