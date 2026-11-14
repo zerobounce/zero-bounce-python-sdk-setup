@@ -29,7 +29,6 @@ class ZBGuessFormatResponse(ZBResponse):
     """This is the response for the GET /guessformat request."""
 
     # A body made only of message keys is a rejected request, not a result.
-    _MESSAGE_ONLY_IS_ERROR = True
 
     email: str = None
 

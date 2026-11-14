@@ -41,7 +41,7 @@ class ZeroBounceTestCase(BaseTestCase):
         client = ZeroBounce("dummy_key")
         client._get("https://example.com", ZBResponse)
         self.requests_mock.get.assert_called_with(
-            'https://example.com', params={'api_key': 'dummy_key'}, timeout=120.0, allow_redirects=False
+            'https://example.com', params={'api_key': 'dummy_key'}, timeout=(30.0, 120.0), allow_redirects=False
         )
 
     def test_credits_invalid_key(self):
@@ -112,7 +112,7 @@ class ZeroBounceTestCase(BaseTestCase):
         self.requests_mock.get.assert_called_with(
             f"{self.zero_bounce_client._base_url}/scoring",
             params={"api_key": "dummy_key", "email": "mark@gmail.com"},
-            timeout=120.0,
+            timeout=(30.0, 120.0),
             allow_redirects=False,
         )
 
@@ -128,7 +128,7 @@ class ZeroBounceTestCase(BaseTestCase):
         self.requests_mock.post.assert_called_with(
             f"{self.zero_bounce_client._base_url}/scoring",
             data={"api_key": "dummy_key", "email": "mark@gmail.com"},
-            timeout=120.0,
+            timeout=(30.0, 120.0),
             allow_redirects=False,
         )
 
@@ -341,11 +341,14 @@ class ZeroBounceTestCase(BaseTestCase):
         self.assertEqual(url, "https://api-eu.zerobounce.net/v2/validatebatch")
 
     def test_validate_batch_handles_missing_email_batch_and_errors_keys(self):
-        """API may omit email_batch or errors keys; client should not crash."""
-        self.requests_mock.post.return_value = MockResponse({})
+        """API may omit email_batch or errors keys; client should not crash (an empty object is an error)."""
+        self.requests_mock.post.return_value = MockResponse({"email_batch": []})
         response = self.zero_bounce_client.validate_batch([ZBValidateBatchElement("a@b.com")])
         self.assertEqual(response.email_batch, [])
         self.assertEqual(response.errors, [])
+        self.requests_mock.post.return_value = MockResponse({})
+        with self.assertRaises(ZBApiException):
+            self.zero_bounce_client.validate_batch([ZBValidateBatchElement("a@b.com")])
 
     def test_response_contains_message_list(self):
         self.requests_mock.get.return_value = MockResponse({
@@ -503,7 +506,9 @@ class ZeroBounceTestCase(BaseTestCase):
 
     def test_get_file_json_indicates_error_static(self):
         self.assertTrue(ZeroBounce.get_file_json_indicates_error('{"success":false,"message":""}'))
-        self.assertFalse(ZeroBounce.get_file_json_indicates_error('{"file_id":"x"}'))
+        self.assertTrue(ZeroBounce.get_file_json_indicates_error('{"file_id":"x"}'))
+        self.assertTrue(ZeroBounce.get_file_json_indicates_error('\ufeff[{"error":"bad"}]'))
+        self.assertFalse(ZeroBounce.get_file_json_indicates_error("a@b.com,valid\n"))
 
     def test_delete_file_valid(self):
         self.requests_mock.get.return_value = MockResponse({
@@ -763,7 +768,7 @@ class ZeroBounceTestCase(BaseTestCase):
         response = client._get("https://example.com", ZBResponse)
         self.assertEqual(response.a, 'b')
         self.requests_mock.get.assert_called_with(
-            'https://example.com', params={'api_key': 'dummy_key'}, timeout=0.123, allow_redirects=False
+            'https://example.com', params={'api_key': 'dummy_key'}, timeout=(0.123, 0.123), allow_redirects=False
         )
 
     def test_posts_pass_timeout(self):
@@ -773,7 +778,7 @@ class ZeroBounceTestCase(BaseTestCase):
         response = client._post("https://example.com", ZBResponse)
         self.assertEqual(response.a, 'b')
         self.requests_mock.post.assert_called_with(
-            'https://example.com', data=None, json=None, files=None, timeout=0.123, allow_redirects=False
+            'https://example.com', data=None, json=None, files=None, timeout=(0.123, 0.123), allow_redirects=False
         )
 
     def test_send_email_finder_file_uses_bulk_email_finder_url(self):

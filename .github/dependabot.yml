@@ -1,4 +1,4 @@
-# Dependabot: security updates only (no version-update PRs).
+# Dependabot: security updates only (no version-update PRs), except the Dockerfile base image digest.
 # Grouped security PRs open weekly on Tuesday morning (Europe/Bucharest).
 # Auto-merge: .github/workflows/dependabot-auto-merge.yml (on PR + Tuesday cron).
 # https://docs.github.com/en/code-security/dependabot/dependabot-security-updates
@@ -38,3 +38,19 @@ updates:
         applies-to: security-updates
         patterns:
           - "*"
+
+  # The test image base is pinned by digest. Version updates stay on (one PR at a time) so the digest
+  # moves with the python:3.14-slim tag; a new Python minor or major is a deliberate change, not a PR.
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: tuesday
+      time: "06:00"
+      timezone: Europe/Bucharest
+    open-pull-requests-limit: 1
+    labels:
+      - "docker dependencies"
+    ignore:
+      - dependency-name: "python"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]

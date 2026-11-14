@@ -60,7 +60,7 @@ CI (`.github/workflows/sdk_ci.yml`) runs `ruff check`, `compileall`, then `pytho
 - Add every user-visible change to `## [Unreleased]` in the same commit as the change.
 - Group entries under these headings, in this order, omitting empty ones: `Added`, `Changed`, `Deprecated`, `Removed`, `Fixed`, `Security`.
 - Write for SDK users: name the method, option, or behaviour, and say what changed. Leave out CI-only changes, internal refactors, and fixes to code that was never released.
-- At 2.y.z, a breaking change bumps the major version, a new method or option bumps the minor version, and fixes alone bump the patch version.
+- At 3.y.z, a breaking change bumps the major version, a new method or option bumps the minor version, and fixes alone bump the patch version.
 
 ## Releasing
 

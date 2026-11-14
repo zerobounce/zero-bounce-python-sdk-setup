@@ -564,13 +564,13 @@ class OfflineApiTest(TestCase):
         self.assertEqual(self.client.list_s3files()[0]["name"], "uploads/a.csv")
 
     def test_query_values_are_percent_encoded(self):
-        client = ZeroBounce("key with space&plus")
+        client = ZeroBounce("key+plus&x")
         client.validate("a b@ex.com")
         recorded = self._only()
         self.assertNotIn(" ", recorded.url)
-        self.assertIn("key+with+space%26plus", recorded.url)
+        self.assertIn("key%2Bplus%26x", recorded.url)
         self.assertIn("a+b%40ex.com", recorded.url)
-        self.assertEqual(recorded.api_key, "key with space&plus")
+        self.assertEqual(recorded.api_key, "key+plus&x")
         self.assertEqual(recorded.query["email"], "a b@ex.com")
 
     def test_column_zero_is_sent_and_unset_columns_are_left_out(self):

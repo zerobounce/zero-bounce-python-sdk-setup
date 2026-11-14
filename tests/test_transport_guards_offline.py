@@ -152,6 +152,9 @@ class RedirectSweepTest(TestCase):
         patcher = patch("zerobouncesdk.zerobouncesdk._https_url", lambda url: url)
         patcher.start()
         self.addCleanup(patcher.stop)
+        warmup_patcher = patch("zerobouncesdk.zb_warmup._https_url", lambda url: url)
+        warmup_patcher.start()
+        self.addCleanup(warmup_patcher.stop)
         self.out = str(Path(tempfile.mkdtemp()) / "out.csv")
 
     def _refused(self, name, call):
@@ -263,6 +266,9 @@ class CutShortBodySweepTest(TestCase):
         patcher = patch("zerobouncesdk.zerobouncesdk._https_url", lambda url: url)
         patcher.start()
         self.addCleanup(patcher.stop)
+        warmup_patcher = patch("zerobouncesdk.zb_warmup._https_url", lambda url: url)
+        warmup_patcher.start()
+        self.addCleanup(warmup_patcher.stop)
         self.folder = Path(tempfile.mkdtemp())
         self.out = str(self.folder / "out.csv")
 
@@ -350,22 +356,22 @@ class TimeoutSweepTest(TestCase):
         client = ZeroBounce(KEY, timeout=timedelta(milliseconds=1234))
         for name, variants in client_calls(client, self.out).items():
             for call in variants:
-                self._check(name, call, 1.234)
+                self._check(name, call, (1.234, 1.234))
 
     def test_every_warmup_request_has_the_timeout(self):
         warmup = ZeroBounceWarmup(KEY, timeout=timedelta(milliseconds=1234))
         for name, call in warmup_calls(self.out).items():
-            self._check(name, lambda c=call: c(warmup), 1.234)
+            self._check(name, lambda c=call: c(warmup), (1.234, 1.234))
 
     def test_the_default_timeouts_are_sent(self):
         # The clients the public constructors build, without a timeout argument: 120 seconds on every request.
         client = ZeroBounce(KEY)
         for name, variants in client_calls(client, self.out).items():
             for call in variants:
-                self._check(name, call, 120.0)
+                self._check(name, call, (30.0, 120.0))
         warmup = ZeroBounceWarmup(KEY)
         for name, call in warmup_calls(self.out).items():
-            self._check(name, lambda c=call: c(warmup), 120.0)
+            self._check(name, lambda c=call: c(warmup), (30.0, 120.0))
 
 
 def _file_reply(status, body, content_type):
@@ -561,10 +567,10 @@ class WarmupCsvWriteTest(TestCase):
                 super().write(bytes(data[:10]))
                 raise OSError(errno.ENOSPC, "No space left on device")
 
-        def disk_full_open(path, mode="r", *args, **kwargs):
-            return DiskFull(path, mode.replace("b", ""))
+        def disk_full_open(fd, mode="r", *args, **kwargs):
+            return DiskFull(fd, mode.replace("b", ""))
 
-        with patch("zerobouncesdk.zb_warmup.open", disk_full_open, create=True):
+        with patch("os.fdopen", disk_full_open):
             for name, download in self.downloads.items():
                 path = self.folder / f"{name}.csv"
                 with self.assertRaises(OSError, msg=name) as caught:
@@ -576,10 +582,10 @@ class WarmupCsvWriteTest(TestCase):
         path = self.folder / "existing.csv"
         path.write_bytes(b"keep me\n")
 
-        def refuse(path, mode="r", *args, **kwargs):
-            raise PermissionError(errno.EACCES, "Permission denied", path)
+        def refuse(fd, mode="r", *args, **kwargs):
+            raise PermissionError(errno.EACCES, "Permission denied")
 
-        with patch("zerobouncesdk.zb_warmup.open", refuse, create=True):
+        with patch("os.fdopen", refuse):
             with self.assertRaises(PermissionError):
                 self.warmup.download_seeds(str(path))
         self.assertEqual(path.read_bytes(), b"keep me\n")
@@ -590,10 +596,10 @@ class WarmupCsvWriteTest(TestCase):
                 super().write(bytes(data[:10]))
                 raise OSError(errno.ENOSPC, "No space left on device")
 
-        def disk_full_open(path, mode="r", *args, **kwargs):
-            return DiskFull(path, mode.replace("b", ""))
+        def disk_full_open(fd, mode="r", *args, **kwargs):
+            return DiskFull(fd, mode.replace("b", ""))
 
-        with patch("zerobouncesdk.zb_warmup.open", disk_full_open, create=True):
+        with patch("os.fdopen", disk_full_open):
             for name, download in self.downloads.items():
                 path = self.folder / f"{name}.csv"
                 path.write_bytes(b"keep me\n")
@@ -676,6 +682,9 @@ class KeyEchoSweepTest(TestCase):
         patcher = patch("zerobouncesdk.zerobouncesdk._https_url", lambda url: url)
         patcher.start()
         self.addCleanup(patcher.stop)
+        warmup_patcher = patch("zerobouncesdk.zb_warmup._https_url", lambda url: url)
+        warmup_patcher.start()
+        self.addCleanup(warmup_patcher.stop)
         self.folder = Path(tempfile.mkdtemp())
         self.out = str(self.folder / "out.csv")
 

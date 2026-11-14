@@ -27,8 +27,17 @@ class KeyFormatTest(TestCase):
                 self.assertNotIn(KEY, str(caught.exception))
                 self.assertNotIn("ab", str(caught.exception).replace("api_key", ""))
 
-    def test_inner_spaces_are_still_allowed_for_the_validation_api(self):
-        ZeroBounce("key with space&plus")
+    def test_inner_spaces_are_refused_for_the_validation_api(self):
+        with self.assertRaises(ZBClientException):
+            ZeroBounce("key with space&plus")
+
+
+def _keyed(cls, secret):
+    """A client holding ``secret`` as its key, which the redaction tests need even for text a real key
+    cannot hold (whitespace, quotes): the key is set after the constructor's check."""
+    client = cls("dummy-placeholder-key")
+    client._api_key.value = secret
+    return client
 
 
 class NoContextLeakTest(TestCase):
@@ -286,7 +295,7 @@ class EverySpellingTest(TestCase):
                     (200, f"<html><head><title>rejected {form}</title></head></html>".encode(), "text/html"),
                 )
                 calls = {
-                    "key": lambda s=secret: ZeroBounce(s).get_credits(),
+                    "key": lambda s=secret: _keyed(ZeroBounce, s).get_credits(),
                     "password": lambda s=secret: ZeroBounceWarmup(KEY).test_smtp_configuration(
                         "a@example.com", "smtp-user-1", s, "smtp.example.com", 587
                     ),
@@ -417,7 +426,7 @@ class EncodingClosureFuzzTest(TestCase):
     def test_the_api_key_never_survives_any_encoding(self):
         from tests.test_transport_guards_offline import client_calls
 
-        client = ZeroBounce(FUZZ_SECRET)
+        client = _keyed(ZeroBounce, FUZZ_SECRET)
         out = str(Path(tempfile.mkdtemp()) / "out.csv")
         calls = [(name, call) for name, variants in client_calls(client, out).items() for call in variants[:1]]
         self.assertEqual(self._leaks(FUZZ_SECRET, calls), [])
@@ -425,7 +434,7 @@ class EncodingClosureFuzzTest(TestCase):
     def test_the_warmup_key_never_survives_any_encoding(self):
         from tests.test_transport_guards_offline import warmup_calls
 
-        warmup = ZeroBounceWarmup(FUZZ_SECRET)
+        warmup = _keyed(ZeroBounceWarmup, FUZZ_SECRET)
         out = str(Path(tempfile.mkdtemp()) / "out.csv")
         calls = [(name, lambda c=call: c(warmup)) for name, call in warmup_calls(out).items()]
         self.assertEqual(self._leaks(FUZZ_SECRET, calls), [])
@@ -475,7 +484,7 @@ class DecodeDepthTest(TestCase):
         patcher = patch("zerobouncesdk.zerobouncesdk._https_url", lambda url: url)
         patcher.start()
         self.addCleanup(patcher.stop)
-        client = ZeroBounce(self.SECRET)
+        client = _keyed(ZeroBounce, self.SECRET)
         client._base_url = server.url + "/v2"
         for attribute, path in _BASE_URL_ATTRIBUTES.items():
             setattr(client, attribute, server.url + path)
@@ -556,11 +565,12 @@ class DecodeStepsTest(TestCase):
             self.assertEqual(len(char.encode()), length)
             secret = "zq" + char + "ZQXMARK"
             for body in (self._lower_hex(secret), "zq" + self._lower_hex(char) + "ZQXMARK"):
-                self.assertEqual(_redact_secrets("rejected " + body, [secret]), CREDENTIAL_OMITTED_MESSAGE, length)
+                # Masked in place (the mask forms match any letter case) or omitted: never left in the text.
+                self.assertIn(_redact_secrets("rejected " + body, [secret]), ("rejected ***", CREDENTIAL_OMITTED_MESSAGE), length)
             # The same through + as space (unquote_plus).
             spaced = "zq " + char + "ZQXMARK"
             body = "zq+" + self._lower_hex(char) + "ZQXMARK"
-            self.assertEqual(_redact_secrets("rejected " + body, [spaced]), CREDENTIAL_OMITTED_MESSAGE, length)
+            self.assertIn(_redact_secrets("rejected " + body, [spaced]), ("rejected ***", CREDENTIAL_OMITTED_MESSAGE), length)
 
     def test_plus_as_space_alone_is_a_decode_step(self):
         """A secret holding a literal %xx, echoed with only its space turned into +, is found only by reading +

@@ -5,11 +5,16 @@ on:
     inputs:
       tag:
         type: string
-        description: Tag to publish (e.g. v2.2.2)
+        description: Tag to publish (e.g. v3.0.1)
         required: true
 
 permissions:
   contents: read
+
+# One publish at a time; a second run waits instead of cancelling a running upload.
+concurrency:
+  group: publish-${{ github.workflow }}
+  cancel-in-progress: false
 
 jobs:
   validate-tag:
@@ -22,7 +27,7 @@ jobs:
         env:
           TAG: ${{ github.event.inputs.tag }}
         run: |
-          re='^v?[0-9]+\.[0-9]+\.[0-9]+([.+-][0-9A-Za-z.-]+)?$'
+          re='^v[0-9]+\.[0-9]+\.[0-9]+([.+-][0-9A-Za-z.-]+)?$'
           if [[ ! "$TAG" =~ $re ]]; then
             echo "Error: the tag input must be a release tag such as v1.2.3."
             exit 1
@@ -73,12 +78,11 @@ jobs:
     needs: [validate-tag]
     if: ${{ !cancelled() && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
     runs-on: ubuntu-latest
-    environment: release
     steps:
       - name: Checkout tag
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: refs/tags/${{ github.event.inputs.tag }}
+          ref: ${{ needs.validate-tag.outputs.tag_sha }}
           persist-credentials: false
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -120,10 +124,12 @@ jobs:
           python-version: "3.14"
 
       - name: Install build tools
-        run: python -m pip install --upgrade pip build
+        # Exact, hashed versions (requirements-build.txt, which Dependabot watches); the build runs
+        # without isolation so setuptools and wheel are those pinned ones, not whatever pip resolves.
+        run: python -m pip install --require-hashes -r requirements-build.txt
 
       - name: Build package
-        run: python -m build
+        run: python -m build --no-isolation
 
       - name: Publish to PyPI
         # PyPI Trusted Publishing, the only way this package is published: the PyPI project trusts this
@@ -136,7 +142,6 @@ jobs:
     needs: [validate-tag, publish]
     if: ${{ !cancelled() && !failure() }}
     runs-on: ubuntu-latest
-    environment: release
     permissions:
       contents: write
     steps:

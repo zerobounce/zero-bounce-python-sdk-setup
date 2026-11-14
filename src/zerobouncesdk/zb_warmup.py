@@ -5,7 +5,6 @@ key, and it authenticates with an ``API-Key`` header instead of an ``api_key`` p
 ``ZeroBounceWarmup`` with a Warmup API key; ``ZeroBounce`` stays for the validation API key.
 """
 
-import contextlib
 import os
 import re
 from datetime import date, timedelta
@@ -18,15 +17,24 @@ from .zb_exceptions import ZBApiException, ZBClientException
 from .zerobouncesdk import (
     _RefusesPickling,
     _Secret,
+    API_KEY_HEADER_PROBLEM,
     _check_api_key,
+    _check_transport_logging,
+    _https_url,
+    _is_safe_https_url,
     _looks_like_html,
     _message_from_body,
-    _partial_file,
+    _download_target,
+    _is_json_type,
+    _json_container,
+    _save_file,
+    _timeouts,
     _path_segment,
     _redact_secrets,
     _response_text,
     _strict_bool,
     _strict_json,
+    _timeout_seconds,
 )
 
 DateLike = Union[date, str]
@@ -64,11 +72,11 @@ class ZeroBounceWarmup(_RefusesPickling):
             raise ZBClientException("Empty parameter: api_key")
         _check_api_key(api_key)
         base = base_url or self.DEFAULT_BASE_URL
-        if not isinstance(base, str) or not base.lower().startswith("https://"):
+        if not isinstance(base, str) or not base.lower().startswith("https://") or not _is_safe_https_url(base):
             raise ZBClientException("base_url must be an https:// URL")
         self._api_key = _Secret(api_key)
         self._root = base.rstrip("/") + self.BASE_PATH
-        self._timeout_s = self.DEFAULT_HTTP_TIMEOUT_S if timeout is None else timeout.total_seconds()
+        self._timeout_s = self.DEFAULT_HTTP_TIMEOUT_S if timeout is None else _timeout_seconds(timeout)
 
     # -- transport ----------------------------------------------------------------------------
 
@@ -76,18 +84,24 @@ class ZeroBounceWarmup(_RefusesPickling):
         return _redact_secrets(text, (self._api_key.value, *extra_secrets))
 
     def _send(self, method: str, path: str, *, params=None, json=None, secrets=()):
+        # self._root can be reassigned: the key goes only to a valid https URL, as the main client checks.
+        url = _https_url(f"{self._root}{path}")
+        _check_transport_logging()
         try:
             response = requests.request(
                 method,
-                f"{self._root}{path}",
+                url,
                 params=params,
                 json=json,
                 headers={"API-Key": self._api_key.value, "Accept": "application/json"},
-                timeout=self._timeout_s,
+                timeout=_timeouts(self._timeout_s),
                 allow_redirects=False,
             )
         except RequestException as e:
             error = type(e)(self._redact(e, secrets))
+        except UnicodeError:
+            # Its ``object`` holds the key being encoded: raised below as a fixed message instead.
+            error = ZBClientException(API_KEY_HEADER_PROBLEM)
         else:
             error = None
         if error is not None:
@@ -128,47 +142,25 @@ class ZeroBounceWarmup(_RefusesPickling):
         )
 
     def _csv(self, path: str, params=None, download_path: Optional[str] = None) -> str:
+        target = None if download_path is None else _download_target(download_path)
         response = self._send("GET", path, params=params)
         body = _response_text(response)
         content_type = response.headers.get("Content-Type", "")
         if (
-            not body.strip()
+            not body.strip("\ufeff \t\r\n")
             or _looks_like_html(body, content_type)
-            or "application/json" in content_type.lower()
-            or self._is_json(body)
+            or _is_json_type(content_type)
+            or _json_container(body)
         ):
             raise ZBApiException(
-                self._redact(_message_from_body(body, response.status_code)), status_code=response.status_code
+                self._redact(_message_from_body(body.lstrip("\ufeff"), response.status_code)),
+                status_code=response.status_code,
             )
-        if download_path:
-            directory = os.path.dirname(download_path)
-            if directory:
-                os.makedirs(directory, exist_ok=True)
+        if target is not None:
             # Written to a temporary file and moved into place, so a failed write never truncates or
             # deletes a file already at download_path.
-            fd, partial = _partial_file(directory)
-            os.close(fd)
-            try:
-                with open(partial, "wb") as handle:
-                    handle.write(response.content)
-                os.replace(partial, download_path)
-            except BaseException:
-                with contextlib.suppress(OSError):
-                    os.unlink(partial)
-                raise
+            _save_file(target, [response.content])
         return body
-
-    @staticmethod
-    def _is_json(body: str) -> bool:
-        """Whether a CSV download's body is a JSON object or array (an API error under a CSV content type)."""
-        text = body.strip()
-        if text[:1] not in ("{", "["):
-            return False
-        try:
-            _strict_json(text)
-        except ValueError:
-            return False
-        return True
 
     # -- argument checks ----------------------------------------------------------------------
 

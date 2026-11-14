@@ -1,0 +1,6 @@
+# The sdist carries what the offline suite needs, so `pytest` runs from the unpacked sdist.
+# tests/live_api_test.py (opt-in, calls the real API) stays out.
+include requirements-build.in requirements-build.txt
+include tests/__init__.py tests/__main__.py tests/zero_bounce_test_case.py
+include tests/fixtures/*.tsv
+include tests/test_*.py
