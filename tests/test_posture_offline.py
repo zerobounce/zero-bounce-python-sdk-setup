@@ -35,9 +35,17 @@ class PublishWorkflowTest(unittest.TestCase):
         self.assertEqual(with_env, ["publish"])
         self.assertIn("id-token: write", self.jobs["publish"])
 
-    def test_every_job_after_validation_checks_out_the_validated_sha(self):
-        for name in ("test", "publish", "release"):
-            self.assertIn("ref: ${{ needs.validate-tag.outputs.tag_sha }}", self.jobs[name], name)
+    def test_every_job_after_validation_runs_only_the_validated_commit(self):
+        # Jobs that run project code check the tag out by name (CodeQL's cache-poisoning rule flags
+        # a job-output ref there) and then stop unless HEAD is the commit validate-tag checked.
+        for name in ("test", "publish"):
+            body = self.jobs[name]
+            self.assertIn("ref: refs/tags/${{ github.event.inputs.tag }}", body, name)
+            self.assertIn("EXPECTED: ${{ needs.validate-tag.outputs.tag_sha }}", body, name)
+            self.assertIn('if [ "$ACTUAL" != "$EXPECTED" ]; then', body, name)
+            self.assertLess(body.index("ref: refs/tags/"), body.index("EXPECTED:"), name)
+            self.assertLess(body.index("EXPECTED:"), body.index("pip install"), name)
+        self.assertIn("ref: ${{ needs.validate-tag.outputs.tag_sha }}", self.jobs["release"])
 
     def test_only_publish_job_has_id_token(self):
         for name, body in self.jobs.items():
