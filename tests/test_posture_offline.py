@@ -106,3 +106,35 @@ class PackagingTest(unittest.TestCase):
         text = manifest.read_text()
         for needed in ("tests/__init__.py", "tests/zero_bounce_test_case.py", "tests/fixtures/*.tsv"):
             self.assertIn(needed, text)
+
+
+def _run_blocks(text):
+    """Yield the text of every `run:` step (single line or block scalar) in a workflow."""
+    lines = text.splitlines()
+    i = 0
+    while i < len(lines):
+        m = re.match(r"^(\s*)(?:- )?run:\s*(.*)$", lines[i])
+        if not m:
+            i += 1
+            continue
+        indent = len(m.group(1)) + (2 if lines[i].lstrip().startswith("- ") else 0)
+        block = [m.group(2)]
+        i += 1
+        while i < len(lines) and (not lines[i].strip() or len(lines[i]) - len(lines[i].lstrip()) > indent):
+            block.append(lines[i])
+            i += 1
+        yield "\n".join(block)
+
+
+@unittest.skipUnless(PUBLISH.exists(), "source tree only")
+class WorkflowInputInjectionTest(unittest.TestCase):
+    def test_no_run_block_expands_inputs_directly(self):
+        # Workflow inputs reach shell code only through env: a tag name pasted into run: is script injection.
+        for path in sorted(PUBLISH.parent.glob("*.yml")):
+            for block in _run_blocks(path.read_text()):
+                self.assertNotRegex(block, r"\$\{\{\s*(github\.event\.inputs\.|inputs\.)", path.name)
+
+    def test_run_block_scanner_sees_a_pasted_input(self):
+        text = "jobs:\n  a:\n    steps:\n      - run: |\n          echo ${{ github.event.inputs.tag }}\n      - run: echo ${{ inputs.tag }}\n"
+        self.assertEqual(len(list(_run_blocks(text))), 2)
+        self.assertTrue(all(re.search(r"\$\{\{\s*(github\.event\.inputs\.|inputs\.)", b) for b in _run_blocks(text)))

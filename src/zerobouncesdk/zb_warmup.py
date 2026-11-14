@@ -8,7 +8,7 @@ key, and it authenticates with an ``API-Key`` header instead of an ``api_key`` p
 import os
 import re
 import warnings
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from typing import Optional, Union
 
 import requests
@@ -42,7 +42,7 @@ from .zerobouncesdk import (
 DateLike = Union[date, str]
 
 _SEARCH_FROM = re.compile(r"^[A-Za-z0-9.\-_@+]*$")
-_ISO_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+_ISO_DATE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
 
 
 class ZeroBounceWarmup(_RefusesPickling):
@@ -180,11 +180,18 @@ class ZeroBounceWarmup(_RefusesPickling):
 
     @staticmethod
     def _iso_date(value: DateLike, name: str) -> str:
+        if isinstance(value, datetime):
+            return value.date().isoformat()
         if isinstance(value, date):
             return value.isoformat()
-        if not isinstance(value, str) or not _ISO_DATE.match(value):
-            raise ZBClientException(f"Invalid parameter: {name} (expected YYYY-MM-DD)")
-        return value
+        if isinstance(value, str) and _ISO_DATE.fullmatch(value):
+            try:
+                date(int(value[:4]), int(value[5:7]), int(value[8:]))
+            except ValueError:
+                pass
+            else:
+                return value
+        raise ZBClientException(f"Invalid parameter: {name} (expected a real date as YYYY-MM-DD)")
 
     @classmethod
     def _engagement_body(cls, c_from: str, reply_pct: int, important_pct: int, click_pct: int) -> dict:
@@ -221,6 +228,12 @@ class ZeroBounceWarmup(_RefusesPickling):
         return value
 
     @classmethod
+    def _nonblank_text(cls, value, name: str) -> str:
+        if not cls._text_field(value, name).strip():
+            raise ZBClientException(f"Empty parameter: {name}")
+        return value
+
+    @classmethod
     def _email_content(cls, given) -> dict:
         if not isinstance(given, dict):
             raise ZBClientException("Invalid parameter: email_content must be a dict")
@@ -232,23 +245,36 @@ class ZeroBounceWarmup(_RefusesPickling):
             elif key not in allowed:
                 warnings.warn(f"add_sending_account: email_content has an unknown key ({key}); it is not sent", stacklevel=3)
         types = given.get("types_of_emails")
+        if isinstance(types, list) and not types:
+            warnings.warn(
+                "add_sending_account: types_of_emails is empty and is not sent; list at least one type", stacklevel=3
+            )
         if types is not None and (not isinstance(types, list) or any(t not in cls.EMAIL_TYPES for t in types)):
             raise ZBClientException("Invalid parameter: types_of_emails (transactional, newsletter and/or marketing)")
         content = {}
         for key in ("company_name",):
             if given.get(key) is not None:
-                content[key] = cls._text_field(given[key], key)
+                content[key] = cls._nonblank_text(given[key], key)
         # "website" was sent as given before and the API does not read it: it goes out as company_website,
         # unless company_website is set too.
+        if given.get("website") is not None:
+            if given.get("company_website") is not None:
+                warnings.warn(
+                    "add_sending_account: website is ignored because company_website is set", stacklevel=3
+                )
+            else:
+                warnings.warn(
+                    "add_sending_account: website is deprecated; use company_website", DeprecationWarning, stacklevel=3
+                )
         website = given.get("company_website") if given.get("company_website") is not None else given.get("website")
         if website is not None:
-            content["company_website"] = cls._text_field(website, "company_website")
+            content["company_website"] = cls._nonblank_text(website, "company_website")
         if given.get("company_description") is not None:
-            content["company_description"] = cls._text_field(given["company_description"], "company_description")
+            content["company_description"] = cls._nonblank_text(given["company_description"], "company_description")
         if types:
             content["types_of_emails"] = list(types)
         if given.get("example_email") is not None:
-            content["example_email"] = cls._text_field(given["example_email"], "example_email")
+            content["example_email"] = cls._nonblank_text(given["example_email"], "example_email")
         return content
 
     @classmethod

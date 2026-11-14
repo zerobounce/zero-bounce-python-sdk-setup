@@ -7,9 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- `documentation.md` Errors paragraph now matches the README: HTTP-200 API errors carry `status_code` 200, and the Inbox Placement Tester, list-evaluator and filter calls return a message-only body as data instead of raising.
+- `documentation.md` Security bullet now lists every logger and `debuglevel` class the SDK checks and describes the WARNING-level masking filter for urllib3 records.
+- CI and publish workflows: `actions/setup-python` pinned to the v7.1.0 commit (was v7.0.0).
+
 ### Removed
 
 - **Breaking:** Python 3.10 is no longer supported (`requires-python = ">=3.11"`). Python 3.10 reached end of life on 2026-10-01. On Python 3.10, pip installs 3.1.0, the last release that supports it. CI's floor job now builds the wheel and runs the tests on Python 3.11.
+
+### Fixed
+
+- **Behaviour change:** Warmup dates (`warmup_start_date`, `start_date`, `end_date`) are now checked as real calendar dates. Before, `2026-13-01`, `2026-02-30`, `"2026-01-01\n"` and non-ASCII digits passed a shape check and were sent; now they raise `ZBClientException` before anything is sent. A `datetime` is sent as its date.
+- File-call responses accept `"success": 1` / `0` (numbers) like `"1"` / `"0"`; other numbers are a wrong-type error naming the field. A missing `success` still reads False, as in the Java SDK.
+- **Behaviour change:** a validate answer `{"Message": [...]}` (a list) is now an API error carrying the joined text (status 200), not a misleading "address is missing". A string Message is still the greylist result.
+- **Behaviour change:** `add_sending_account` warns when `website` is used (DeprecationWarning, use `company_website`), when `website` is dropped because `company_website` is set, and when `types_of_emails` is empty. Blank `company_name`, `company_website`, `company_description` or `example_email` are refused before sending.
+- Download targets: a relative path in a read-only working directory, or a path with an existing file as a folder component, is refused before sending (before: sent, then failed).
+- The "debug logging is enabled" error names the logger that is actually at DEBUG (it said "urllib3" for `requests` / `http.client`).
+
+### Security
+
+- urllib3 log records are masked by key value (any encoding or position: `api%5Fkey=`, JSON, headers, URL path, quotes) for every key a client holds, as well as by parameter name; the mask covers every `urllib3.*` logger (not just two), and exception and stack text, with the record kept.
+- A new offline test fails if any workflow `run:` block expands `${{ github.event.inputs.* }}` or `${{ inputs.* }}` directly; inputs must reach shell code through `env:`.
+
 
 ## [3.1.0] - 2026-11-15
 

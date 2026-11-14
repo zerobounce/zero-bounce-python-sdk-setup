@@ -10,6 +10,7 @@ import re
 import stat
 import unicodedata
 import warnings
+import weakref
 from datetime import date, timedelta
 from secrets import token_hex
 import os
@@ -219,30 +220,51 @@ _KEY_IN_TEXT = re.compile(r"(?i)\b(api[_-]?key|apikey)(=|%3d)[^&\s)\"'#]*")
 
 
 class _RedactKeyFilter(logging.Filter):
-    """Masks ``api_key=<value>`` in what urllib3 logs at WARNING and above (e.g. ``Failed to parse headers
-    (url=https://…/getcredits?api_key=<key>)``). Records are not dropped and levels are not changed."""
+    """Masks the API key in what urllib3 logs at WARNING and above (e.g. ``Failed to parse headers
+    (url=https://…/getcredits?api_key=<key>)``): the ``api_key=<value>`` parameter, and the value of every key a
+    client currently holds in any encoding (``api%5Fkey=``, JSON, headers, the path). The message, the exception
+    text and the stack text are all masked. Records are not dropped and levels are not changed."""
+
+    def _mask(self, text: str) -> str:
+        text = _KEY_IN_TEXT.sub(lambda m: m.group(1) + m.group(2) + "***", text)
+        secrets = [secret.value for secret in list(_LIVE_SECRETS)]
+        return _redact_secrets(text, secrets) if secrets else text
 
     def filter(self, record: logging.LogRecord) -> bool:
         try:
             text = record.getMessage()
         except Exception:
-            return True
-        redacted = _KEY_IN_TEXT.sub(lambda m: m.group(1) + m.group(2) + "***", text)
-        if redacted != text:
-            record.msg = redacted
-            record.args = None
+            text = None
+        try:
+            if text is not None:
+                redacted = self._mask(text)
+                if redacted != text:
+                    record.msg = redacted
+                    record.args = None
+            if record.exc_info:
+                if not record.exc_text:
+                    record.exc_text = logging.Formatter().formatException(record.exc_info)
+                record.exc_info = None
+            if record.exc_text:
+                record.exc_text = self._mask(record.exc_text)
+            if record.stack_info:
+                record.stack_info = self._mask(record.stack_info)
+        except Exception:
+            pass
         return True
 
 
-_REDACTED_LOGGERS = ("urllib3.connection", "urllib3.connectionpool")
-
-
 def _install_log_redaction() -> None:
-    """Install the key-masking filter on the urllib3 connection loggers, once."""
-    for name in _REDACTED_LOGGERS:
+    """Install the key-masking filter on every urllib3 logger (a filter on a parent does not apply to records from
+    its children), including the ones created since the last call."""
+    names = {name for name in list(logging.root.manager.loggerDict) if name == "urllib3" or name.startswith("urllib3.")}
+    names.update(name for name in _TRANSPORT_LOGGERS if name.startswith("urllib3"))
+    for name in names:
         logger = logging.getLogger(name)
         if not any(isinstance(f, _RedactKeyFilter) for f in logger.filters):
             logger.addFilter(_RedactKeyFilter())
+    # No global LogRecordFactory hook: that would change logging for the whole application. urllib3 creates its
+    # module loggers at import, and this runs again before every send, so a filter is on each before a request.
 
 
 _install_log_redaction()
@@ -265,8 +287,8 @@ def _check_transport_logging() -> None:
     for name in _TRANSPORT_LOGGERS:
         if logging.getLogger(name).isEnabledFor(logging.DEBUG):
             raise ZBClientException(
-                f"urllib3 debug logging ({name}) is enabled and would write your API key to the log; "
-                "set the urllib3 logger to INFO or above."
+                f"HTTP debug logging (the {name} logger) is enabled and would write your API key to the log; "
+                f"set the {name} logger to INFO or above."
             )
 
 
@@ -519,8 +541,13 @@ def _check_writable(target: str) -> None:
     """Refuse, before anything is sent, a target whose nearest existing folder cannot be written to."""
     folder = os.path.dirname(target) or "."
     while not os.path.isdir(folder):
+        if os.path.exists(folder):
+            raise ZBClientException(f"Invalid parameter: download_path (a part of the path, {folder}, is a file)")
         parent = os.path.dirname(folder)
-        if not parent or parent == folder:
+        if not parent:
+            folder = os.getcwd()
+            break
+        if parent == folder:
             return
         folder = parent
     if not os.access(folder, os.W_OK | os.X_OK):
@@ -660,14 +687,19 @@ def _redact_secrets(text, secrets) -> str:
     return text
 
 
+# The credentials clients currently hold: the log filter masks their values wherever they appear.
+_LIVE_SECRETS = weakref.WeakSet()
+
+
 class _Secret:
     """A credential a client holds. Its text is masked, so no dump of the client (``vars()``, ``repr``, ``pprint``)
     shows the key; the key is read only through ``.value``."""
 
-    __slots__ = ("value",)
+    __slots__ = ("value", "__weakref__")
 
     def __init__(self, value: str):
         self.value = value
+        _LIVE_SECRETS.add(self)
 
     def __repr__(self) -> str:
         return "***"
@@ -936,7 +968,9 @@ class ZeroBounce(_RefusesPickling):
             # The email finder and domain search never answer with a bare message: a body made only of message
             # keys is how they report a rejected request (LIVE: a dead key gets {"Message": "Invalid API key..."}).
             # Not for validate, whose greylist answer {"Message": "..."} is a result.
-            greylist = greylist_ok and set(payload) == {"Message"}
+            # A list under "Message" is a message-only
+            # error, as in the Java SDK, never a validate result that then fails as "address is missing".
+            greylist = greylist_ok and set(payload) == {"Message"} and not isinstance(payload["Message"], list)
             if greylist and not _message_text(payload["Message"]):
                 # A greylist answer carries its text; a blank one is an error, not a result with no text.
                 raise ZBApiException(_NO_MESSAGE_TEXT, status_code=status)

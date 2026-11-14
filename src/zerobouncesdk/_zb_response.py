@@ -96,19 +96,27 @@ class ZBFileResponse(ZBResponse):
 
     message: str = None
 
-    _FIELD_TYPES = {"success": FLAG, "message": TEXT_OR_ARRAY}
+    # A missing ``success`` reads as the class default (False for most file responses), as in the Java SDK.
+    _FIELD_TYPES = {"success": FLAG + INT, "message": TEXT_OR_ARRAY}
 
     @classmethod
     def _check_values(cls, data):
         success = data.get("success")
-        if isinstance(success, str) and success.strip().lower() not in ("true", "false", "1", "0"):
+        if isinstance(success, bool) or success is None:
+            return
+        if isinstance(success, int):
+            if success not in (0, 1):
+                raise ZBFieldTypeError("success has the wrong type")
+        elif success.strip().lower() not in ("true", "false", "1", "0"):
             raise ZBFieldTypeError("success has the wrong type")
 
     def __init__(self, data):
         super().__init__(data)
         if isinstance(self.message, list):
             self.message = "\n".join(self.message)
-        if isinstance(self.success, str):
+        if isinstance(self.success, int) and not isinstance(self.success, bool):
+            self.success = self.success == 1
+        elif isinstance(self.success, str):
             text = self.success.strip().lower()
             if text in ("true", "1"):
                 self.success = True
